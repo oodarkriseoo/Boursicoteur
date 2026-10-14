@@ -1,0 +1,98 @@
+# Copie ce fichier en config.yaml et adapte-le.
+# Les secrets (clés d'API, jetons) ne vont jamais ici : ils se lisent dans
+# les variables d'environnement nommées plus bas.
+
+# Tes positions actuelles. Le ticker est celui de Yahoo Finance
+# (suffixe .PA pour Paris, .AS pour Amsterdam, rien pour les US).
+portefeuille:
+  - ticker: CW8.PA
+    nom: Amundi MSCI World (PEA)
+    enveloppe: PEA
+    quantite: 5
+    prix_revient: 520.0
+  - ticker: NVDA
+    nom: Nvidia
+    enveloppe: CTO
+    quantite: 3
+    prix_revient: 120.0
+
+# Référence pour juger l'outil : est-ce qu'il fait mieux que garder cet ETF ?
+reference: CW8.PA
+
+seuils:
+  baisse_seance_pct: 5        # alerte si une position perd plus de 5 % sur la séance
+  baisse_depuis_sommet_pct: 15  # alerte si une position est à -15 % de son plus haut sur 3 mois
+  perte_vs_prix_revient_pct: 20 # alerte si une position est à -20 % de ton prix de revient
+  vix_alerte: 30              # alerte si l'indice de peur (VIX) dépasse 30
+  volume_inhabituel_x: 3      # signal si le volume du jour vaut 3 fois la moyenne sur 20 jours
+
+# Module « pépites IA » : l'univers surveillé. Ajoute ou retire librement.
+theme_ia:
+  univers:
+    # Puces et équipement
+    - NVDA
+    - AMD
+    - AVGO
+    - TSM
+    - ASML.AS
+    - ARM
+    - MU
+    # Réseau, connectique, serveurs
+    - ANET
+    - ALAB
+    - CRDO
+    - SMCI
+    # Énergie et refroidissement des data centers
+    - VRT
+    - VST
+    - CEG
+    # Cloud IA et logiciels
+    - CRWV
+    - NBIS
+    - PLTR
+  mots_cles:
+    - intelligence artificielle
+    - artificial intelligence
+    - " AI "
+    - GPU
+    - data center
+    - datacenter
+    - LLM
+    - inference
+    - semiconductor
+  # Nombre maximum de pistes présentées chaque jour
+  pistes_max: 5
+
+# Introductions en bourse et dépôts de dossiers (S-1) aux États-Unis.
+introductions:
+  nasdaq: true
+  sec_s1: true
+  # La SEC exige un User-Agent avec un moyen de contact.
+  sec_user_agent: "Boursicoteur contact@example.com"
+
+flux_rss:
+  - https://www.ecb.europa.eu/rss/press.html
+  - https://www.federalreserve.gov/feeds/press_all.xml
+  - https://services.lesechos.fr/rss/les-echos-finance-marches.xml
+  # Actus par valeur (Yahoo Finance) : ajoutées automatiquement pour le
+  # portefeuille et l'univers IA, inutile de les lister ici.
+
+ia:
+  activee: true
+  modele: claude-opus-5-5
+  effort: low                 # low suffit pour un résumé quotidien et limite le coût
+  cle_env: ANTHROPIC_API_KEY
+
+notifications:
+  telegram:
+    token_env: TELEGRAM_BOT_TOKEN
+    chat_id_env: TELEGRAM_CHAT_ID
+  ntfy:
+    topic_env: NTFY_TOPIC     # ex. https://ntfy.sh/mon-sujet-secret
+
+planification:
+  intervalle_veille_min: 30   # fréquence des contrôles en mode boucle
+  heure_resume: "08:00"       # heure du résumé quotidien (heure de Paris)
+  jour_bilan: 1               # 1er du mois : bilan mensuel des hypothèses
+
+base_de_donnees: data/journal.sqlite
