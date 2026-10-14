@@ -104,12 +104,12 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
         journal.noter(h, _dernier(historiques, h.ticker), reference)
 
     notifieur.envoyer(
-        formater_resume(contexte, pistes, hypotheses, intros_a_suivre, intros),
+        formater_resume(contexte, pistes, hypotheses, intros_a_suivre),
         titre=f"Résumé du {date.today():%d/%m/%Y}",
     )
 
 
-def formater_resume(contexte, pistes, hypotheses, intros_a_suivre, intros) -> str:
+def formater_resume(contexte, pistes, hypotheses, intros_a_suivre) -> str:
     parties = ["🌍 Contexte", contexte or "—", ""]
     parties.append("🤖 Pistes IA du jour")
     if pistes:
@@ -129,16 +129,13 @@ def formater_resume(contexte, pistes, hypotheses, intros_a_suivre, intros) -> st
     else:
         parties.append("• Aucune hypothèse assez solide aujourd'hui. C'est une réponse valable.")
     parties.append("")
-    parties.append("🚀 Introductions en bourse")
+    # Seules les introductions retenues par l'IA sont montrées ; sans
+    # sélection, la rubrique disparaît plutôt que d'afficher une liste brute.
     if intros_a_suivre:
+        parties.append("🚀 Introductions en bourse à suivre")
         for i in intros_a_suivre:
             parties.append(f"• {i['societe']} : {i['pourquoi']}\n   Risques : {i['risques']}")
-    elif intros:
-        for i in intros[:5]:
-            parties.append(f"• {i.societe} ({i.statut}) {i.ticker} {i.date}".rstrip())
-    else:
-        parties.append("• Rien de nouveau.")
-    parties.append("")
+        parties.append("")
     parties.append("Rappel : ce sont des hypothèses à vérifier, pas des ordres.")
     return "\n".join(parties)
 
