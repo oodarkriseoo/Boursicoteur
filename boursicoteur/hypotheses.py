@@ -106,6 +106,13 @@ def preparer_donnees(
     return "\n".join(lignes)
 
 
+def entetes(config_ia: dict[str, Any]) -> dict[str, str]:
+    """Une clé d'API non rattachée à un espace de travail exige l'en-tête
+    ``anthropic-workspace-id`` ; son identifiant se lit dans l'environnement."""
+    espace = os.environ.get(config_ia.get("espace_env", "ANTHROPIC_WORKSPACE_ID"), "").strip()
+    return {"anthropic-workspace-id": espace} if espace else {}
+
+
 def avec_claude(
     donnees: str,
     config_ia: dict[str, Any],
@@ -126,7 +133,8 @@ def avec_claude(
             return None
         import anthropic
 
-        client = anthropic.Anthropic(api_key=os.environ[config_ia.get("cle_env", "ANTHROPIC_API_KEY")])
+        client = anthropic.Anthropic(api_key=os.environ[config_ia.get("cle_env", "ANTHROPIC_API_KEY")],
+                                     default_headers=entetes(config_ia))
 
     try:
         reponse = client.beta.messages.create(

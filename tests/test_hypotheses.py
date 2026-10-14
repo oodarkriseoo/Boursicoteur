@@ -64,3 +64,10 @@ def test_repli_par_regles():
         Piste("C", 1.0, [], tendance="haussière"),
     ]
     assert [h.ticker for h in hyp.par_regles(pistes)] == ["A"]
+
+
+def test_entete_espace_de_travail(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID", raising=False)
+    assert hyp.entetes({}) == {}
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", " wrkspc_123 ")
+    assert hyp.entetes({}) == {"anthropic-workspace-id": "wrkspc_123"}

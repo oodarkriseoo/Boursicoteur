@@ -138,6 +138,9 @@ ia:
   modele: claude-opus-5-5
   effort: low                 # low suffit pour un résumé quotidien et limite le coût
   cle_env: ANTHROPIC_API_KEY
+  # Seulement si ta clé n'est rattachée à aucun espace de travail (erreur
+  # « anthropic-workspace-id ») : identifiant de l'espace, lu dans cette variable.
+  espace_env: ANTHROPIC_WORKSPACE_ID
 
 notifications:
   telegram:
