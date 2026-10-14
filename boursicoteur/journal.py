@@ -116,6 +116,11 @@ class Journal:
         self.db.commit()
         return nouveaux
 
+    def liens_inconnus(self, liens: list[str]) -> set[str]:
+        """Comme ``nouvelles_actus``, sans rien enregistrer."""
+        return {l for l in liens
+                if self.db.execute("SELECT 1 FROM actus_vues WHERE lien = ?", (l,)).fetchone() is None}
+
     # --- alertes -----------------------------------------------------------
     def alerte_inedite(self, cle: str, message: str, jour: date | None = None) -> bool:
         """True si l'alerte n'a pas encore été envoyée aujourd'hui (et la note)."""
@@ -313,7 +318,7 @@ class Journal:
         self.db.commit()
         return reussie
 
-    def bilan(self) -> dict[str, float | int | None]:
+    def bilan(self, origine: str | None = None) -> dict[str, float | int | None]:
         """Statistiques sur les hypothèses évaluées.
 
         ``gain_moyen_pct`` : ce qu'aurait rapporté en moyenne le fait de suivre
@@ -322,7 +327,10 @@ class Journal:
         mêmes périodes. L'outil n'apporte quelque chose que si le premier
         dépasse nettement le second, frais compris.
         """
-        lignes = self.db.execute("SELECT * FROM hypotheses WHERE evaluee_le IS NOT NULL").fetchall()
+        lignes = self.db.execute(
+            "SELECT * FROM hypotheses WHERE evaluee_le IS NOT NULL" + (" AND origine = ?" if origine else ""),
+            (origine,) if origine else (),
+        ).fetchall()
         if not lignes:
             return {"evaluees": 0, "taux_reussite_pct": None, "gain_moyen_pct": None,
                     "reference_moyenne_pct": None}

@@ -2,7 +2,7 @@
 
 Avec une clé d'API Anthropic, Claude lit les actus du jour, les indicateurs
 et les introductions en bourse, puis propose des hypothèses structurées.
-Sans clé, des règles simples prennent le relais à partir des pistes IA.
+Sans clé, des règles simples prennent le relais à partir des pistes par thème.
 """
 
 from __future__ import annotations
@@ -61,8 +61,9 @@ SCHEMA = {
 }
 
 CONSIGNES = """Tu aides un particulier français à suivre les marchés. Il investit via un PEA \
-et un compte-titres, et s'intéresse surtout aux entreprises liées à l'intelligence \
-artificielle, y compris des petites valeurs et des introductions en bourse peu connues.
+et un compte-titres. Il suit plusieurs thèmes (intelligence artificielle, santé, \
+électrification, matériaux, défense, banques…), y compris des petites valeurs et des \
+introductions en bourse peu connues. Seules les actions européennes vont dans le PEA.
 
 À partir des données fournies (et seulement d'elles), rédige en français :
 1. un résumé du contexte de marché et économique ;
@@ -91,7 +92,7 @@ def preparer_donnees(
     marche: dict[str, Any],
 ) -> str:
     lignes = ["## Marché", json.dumps(marche, ensure_ascii=False, default=str)]
-    lignes.append("\n## Pistes IA (signaux techniques)")
+    lignes.append("\n## Pistes par thème (signaux techniques)")
     for p in pistes:
         cours = f"{p.dernier_cours:.2f}" if p.dernier_cours is not None else "?"
         lignes.append(f"- {p.ticker} : score {p.score}, cours {cours}, {', '.join(p.raisons) or 'aucun signal'}")

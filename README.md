@@ -1,6 +1,6 @@
 # Boursicoteur
 
-Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compte-titres), les actus et le contexte économique, repère les valeurs liées à l'intelligence artificielle qui s'animent, surveille les introductions en bourse, formule des hypothèses haussières ou baissières et te prévient sur Telegram ou ntfy.
+Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compte-titres), les actus et le contexte économique, repère les valeurs qui s'animent dans les thèmes suivis (IA, santé, électrification, matériaux critiques, défense, banques…), surveille les introductions en bourse, formule des hypothèses haussières ou baissières et te prévient sur Telegram ou ntfy.
 
 **Il ne passe aucun ordre.** Il t'informe, tu décides et tu cliques dans l'appli de ton courtier (Trade Republic par exemple, qui n'a pas d'API officielle). Chaque hypothèse est notée dans un journal puis évaluée à son échéance, pour savoir honnêtement si l'outil fait mieux que de garder un ETF MSCI World.
 
@@ -9,8 +9,9 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 | Commande | Rôle | Fréquence conseillée |
 |---|---|---|
 | `veille` | Alertes de chute : séance (puis à chaque palier de 3 points), chute rapide entre deux contrôles, passage sous ton seuil de sortie (`stop`), recul depuis le plus haut, perte par rapport à ton prix de revient, VIX élevé. Chaque alerte de chute rappelle ton écart au prix de revient, le plus bas des 20 dernières séances et la dernière actu. Les actus de tes positions ne sont plus envoyées d'office : le bouton « En savoir plus » sous le résumé les rassemble à la demande, liens compris. | Toutes les 30 min |
-| `opportunites` | Score sur 100 pour chaque valeur de l'univers IA : catalyseur dans l'actu (partenariat, contrat, prise de participation, résultats relevés), dynamique, volume, accélération du jour. Claude affine la note du catalyseur. Au-dessus du seuil, alerte immédiate, notée au journal. | Toutes les 30 min |
-| `resume` | Résumé du contexte, conseil sur chacune de tes positions (garder, alléger, prendre des gains, vendre), valeurs IA les mieux notées sur 100, introductions en bourse à venir et dossiers déposés à la SEC, hypothèses notées au journal. | Chaque matin |
+| `opportunites` | Score sur 100 pour chaque valeur des thèmes suivis : catalyseur dans l'actu (partenariat, contrat, prise de participation, résultats relevés), dynamique, volume, accélération du jour. Claude affine la note du catalyseur. Au-dessus du seuil, alerte immédiate, notée au journal. | Toutes les 30 min |
+| `evenements` | Lit l'actualité mondiale et des sources officielles (FDA, Agence européenne du médicament, contrats du Pentagone, énergie). Claude relie chaque événement aux valeurs suivies, surtout les effets de second rang, avec la chaîne de cause à effet. Au-dessus de 3/5 de confiance, alerte : avec un plan d'achat chiffré et ses boutons si une hausse est attendue, avec un rappel de ton stop si une baisse touche une de tes positions. Chaque lien est noté au journal et mesuré. | Toutes les 5 min (Claude au plus tous les quarts d'heure) |
+| `resume` | Résumé du contexte, conseil sur chacune de tes positions (garder, alléger, prendre des gains, vendre), valeurs les mieux notées sur 100 dans chaque thème (avec la mention « PEA possible »), introductions en bourse à venir et dossiers déposés à la SEC, hypothèses notées au journal. | Chaque matin |
 | `bilan` | Évalue les hypothèses arrivées à échéance : taux de réussite, gain moyen, et comparaison avec l'ETF de référence. | Chaque mois |
 | `boucle` | Enchaîne tout automatiquement selon la section `planification` de la configuration. | En continu |
 
@@ -19,6 +20,14 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 **Baisses inhabituelles.** Chaque valeur est jugée selon sa propre respiration : le repli en cours est comparé à tous ses replis des deux dernières années, la chute du jour à sa variation normale (en écarts-types). S'y ajoutent la cassure de la série de creux montants, le passage sous la moyenne 200 jours et l'emballement de la volatilité. Le tout donne un risque sur 100 ; au-dessus de 50, une alerte situe la baisse par rapport à tes gains déjà faits. Une baisse ordinaire pour une valeur nerveuse n'alerte plus. Ces signaux disent quand une baisse sort de l'ordinaire, ils ne prédisent pas l'avenir.
 
 **Historique des news.** Chaque news porteuse d'un catalyseur est notée avec le cours du moment ; son effet est mesuré à 1 jour, 1 semaine et 4 semaines, en points d'écart à l'ETF de référence. Dès qu'une catégorie (contrat, partenariat, résultats…) compte 10 cas mesurés, son poids dans le score est corrigé par son effet réel, de la moitié à une fois et demie. Le bilan mensuel affiche l'effet moyen de chaque catégorie. Il faut plusieurs mois pour que ces chiffres veuillent dire quelque chose.
+
+**Thèmes suivis.** L'IA (`theme_ia`) et les secteurs de la section `themes` passent tous par le même score sur 100. Chaque thème a son univers, ses mots-clés et son nombre de pistes dans le résumé. Les valeurs cotées en euros sont marquées « PEA possible », à confirmer chez ton courtier ; les autres vont sur le compte-titres. Pour ajouter les thèmes de l'exemple à un `config.yaml` existant qui n'a pas encore de section `themes` :
+
+```bash
+python3 -c "import yaml; e = yaml.safe_load(open('config.example.yaml')); open('config.yaml', 'a').write('\n' + yaml.safe_dump({'themes': e['themes']}, allow_unicode=True, sort_keys=False))"
+```
+
+**Actus non boursières.** Un site boursier qui conseille d'acheter arrive après le marché. La commande `evenements` part de faits bruts (un détroit fermé, un médicament autorisé, un contrat militaire, une canicule) et cherche qui en profite ou en souffre parmi tes valeurs, en privilégiant ce qui met des jours à se voir : la course à la seconde est perdue d'avance face aux robots des fonds. Chaque lien est noté comme catalyseur (catégories « événement direct » ou « indirect », hausse ou baisse attendue) et comme hypothèse ; le bilan mensuel compare les origines des hypothèses entre elles. Les flux, l'intervalle et le nombre d'appels à Claude se règlent dans la section `evenements`.
 
 **Mémoire de l'IA.** Avec les news du jour, Claude reçoit une fiche courte recalculée depuis le journal : l'effet mesuré de chaque type de news par secteur, le bilan de ses hypothèses passées et ce qu'ont fait les cours après les dernières news de chaque valeur. Il raisonne ainsi sur des chiffres réels plutôt que de mémoire. Les secteurs se complètent dans la section `secteurs` de la configuration.
 
@@ -31,7 +40,7 @@ git clone https://github.com/oodarkriseoo/Boursicoteur.git
 cd Boursicoteur
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp config.example.yaml config.yaml   # puis adapte ton portefeuille et l'univers IA
+cp config.example.yaml config.yaml   # puis adapte ton portefeuille et les thèmes suivis
 ```
 
 Secrets, dans des variables d'environnement (jamais dans `config.yaml`) :

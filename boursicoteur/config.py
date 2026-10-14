@@ -22,8 +22,27 @@ DEFAUTS: dict[str, Any] = {
     },
     "secteurs": {},  # ticker → secteur, en complément de memoire.SECTEURS
     "theme_ia": {"univers": [], "mots_cles": [], "pistes_max": 5},
+    "themes": {},  # autres secteurs suivis, même forme que theme_ia (plus « libelle »)
     "opportunites": {"activee": True, "seuil_alerte": 60, "alertes_max": 3,
                      "modele": "claude-sonnet-5-5"},
+    "evenements": {
+        "actives": True,
+        "intervalle_min": 5,        # relecture des flux
+        "pause_ia_min": 15,         # au plus un appel à Claude par quart d'heure
+        "appels_max_jour": 40,
+        "confiance_alerte": 3,
+        "alertes_max": 3,
+        "modele": "claude-sonnet-5-5",
+        "flux": [
+            "https://feeds.bbci.co.uk/news/world/rss.xml",
+            "https://feeds.bbci.co.uk/news/business/rss.xml",
+            "https://www.lemonde.fr/international/rss_full.xml",
+            "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml",
+            "https://www.ema.europa.eu/en/news.xml",
+            "https://www.war.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=400&Site=945&max=10",
+            "https://www.eia.gov/rss/todayinenergy.xml",
+        ],
+    },
     "conseils": {
         "actives": True,
         "poche_eur": 1000.0,
@@ -83,9 +102,33 @@ def charger(chemin: str | Path = "config.yaml") -> dict[str, Any]:
     return _fusionner(DEFAUTS, contenu)
 
 
+def themes(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Tous les thèmes suivis, l'IA en premier, chacun complété par défaut :
+    libellé, univers, mots-clés et nombre de pistes montrées dans le résumé."""
+    tous = {"ia": {"libelle": "IA", **config["theme_ia"]}}
+    for nom, theme in (config.get("themes") or {}).items():
+        tous[nom] = {"libelle": nom.capitalize(), "univers": [], "mots_cles": [], "pistes_max": 3,
+                     **(theme or {})}
+    return tous
+
+
+def univers_complet(config: dict[str, Any]) -> list[str]:
+    """Les valeurs de tous les thèmes, sans doublon, dans l'ordre."""
+    return list(dict.fromkeys(t for theme in themes(config).values() for t in theme["univers"]))
+
+
+def theme_de(config: dict[str, Any]) -> dict[str, str]:
+    """Ticker → libellé de son thème (le premier qui le cite)."""
+    resultat: dict[str, str] = {}
+    for theme in themes(config).values():
+        for t in theme["univers"]:
+            resultat.setdefault(t, theme["libelle"])
+    return resultat
+
+
 def tickers_suivis(config: dict[str, Any]) -> list[str]:
-    """Portefeuille + univers IA + référence, sans doublon, dans l'ordre."""
+    """Portefeuille + univers de tous les thèmes + référence, sans doublon, dans l'ordre."""
     tickers = [p["ticker"] for p in config["portefeuille"]]
-    tickers += config["theme_ia"]["univers"]
+    tickers += univers_complet(config)
     tickers.append(config["reference"])
     return list(dict.fromkeys(tickers))

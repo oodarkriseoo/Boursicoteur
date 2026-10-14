@@ -2,8 +2,9 @@
 
 Commandes :
   veille  contrôle rapide (alertes de chute, conseils sur tes positions)
-  opportunites  repère les valeurs IA portées par un catalyseur frais, score sur 100
-  resume  résumé quotidien : contexte, pistes IA, introductions, hypothèses
+  opportunites  repère les valeurs de chaque thème portées par un catalyseur frais, score sur 100
+  evenements  relie l'actu non boursière (monde, santé, défense, énergie) aux valeurs suivies
+  resume  résumé quotidien : contexte, pistes par thème, introductions, hypothèses
   bilan   évalue les hypothèses arrivées à échéance et compare à la référence
   boucle  tourne en continu : veille toutes les N minutes, résumé et bilan aux heures prévues
 
@@ -20,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from . import config as cfg
 from . import conseils as cons
+from . import evenements as evt
 from .courtier import Courtier, contrat_ibkr
 from . import hypotheses as hyp
 from . import memoire
@@ -139,12 +141,12 @@ def avis_portefeuille(conf, historiques, taux):
 
 
 def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
-    """Alerte immédiate quand une valeur de l'univers IA reçoit un catalyseur
+    """Alerte immédiate quand une valeur d'un thème suivi reçoit un catalyseur
     frais et que le marché confirme (score au-dessus du seuil)."""
     reglages = conf["opportunites"]
     if not reglages["activee"]:
         return
-    univers = conf["theme_ia"]["univers"]
+    univers = cfg.univers_complet(conf)
     historiques = src_cours.historiques(univers + [conf["reference"], "EURUSD=X"], periode="6mo")
     eurusd = _dernier(historiques, "EURUSD=X")
     actus = src_actus.collecter([], univers)
@@ -152,6 +154,9 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
     nouvelles = {l[4:] for l in journal.nouvelles_actus([f"opp:{a.lien}" for a in actus])}
     scores = opp.scorer(univers, historiques, actus, nouvelles, conf["seuils"]["volume_inhabituel_x"],
                         journal.effet_par_categorie())
+    themes = cfg.theme_de(conf)
+    for o in scores:
+        o.theme = themes.get(o.ticker, "")
     reference = _dernier(historiques, conf["reference"])
     # historique des news : chaque catalyseur frais est noté avec le cours du moment,
     # son effet sera mesuré à 1 jour, 1 semaine et 4 semaines
@@ -167,7 +172,7 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
     if candidates:
         opp.affiner_avec_claude(candidates, conf["ia"], reglages.get("modele"),
                                 memoire=memoire.fiche(journal, [o.ticker for o in candidates],
-                                                      conf["secteurs"]))
+                                                      secteurs(conf)))
     retenues = sorted((o for o in candidates if o.score >= seuil), key=lambda o: o.score, reverse=True)
 
     for o in retenues[: reglages["alertes_max"]]:
@@ -177,12 +182,8 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
         plan, id_conseil = conseil_achat(conf, journal, o.ticker, historiques, eurusd)
         if plan:
             texte += "\n\n" + plan
-        boutons = None
-        if id_conseil:
-            boutons = [[("✅ Déjà acheté", f"achete:{id_conseil}"), ("❌ Ignorer", f"ignore:{id_conseil}")]]
-            if Courtier(conf["courtier"]).actif and contrat_ibkr(o.ticker):
-                boutons.insert(0, [("🛒 Acheter via IBKR", f"commande:{id_conseil}")])
-        notifieur.envoyer(texte, titre="Opportunité", urgent=True, boutons=boutons)
+        notifieur.envoyer(texte, titre="Opportunité", urgent=True,
+                          boutons=boutons_conseil(conf, o.ticker, id_conseil))
         # notée au journal : le bilan dira si les opportunités scorées tiennent leurs promesses
         journal.noter(
             Hypothese(o.ticker, "hausse", 20, 3 if o.score >= 80 else 2,
@@ -191,6 +192,87 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
                       origine="opportunite"),
             o.dernier_cours, reference,
         )
+
+
+def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None = None) -> None:
+    """Lit les sources non boursières et demande à Claude quelles valeurs suivies
+    en profitent ou en souffrent, surtout en second rang. ``etat`` garde, d'un
+    passage à l'autre de la boucle, le cache des flux et le compte des appels."""
+    reglages = conf["evenements"]
+    if not reglages["actives"]:
+        return
+    etat = {} if etat is None else etat
+    actus = []
+    for url in reglages["flux"]:
+        actus += src_actus.lire_flux(url, limite=15, cache=etat.setdefault("cache", {}))
+    inconnus = journal.liens_inconnus([f"evt:{a.lien}" for a in actus])
+    inedites = list({a.lien: a for a in actus if f"evt:{a.lien}" in inconnus}.values())[:30]
+    if not inedites:
+        return
+    # les actus attendent le prochain appel autorisé : rien n'est perdu, tout est groupé
+    maintenant = time.monotonic()
+    if etat.get("jour") != date.today():
+        etat.update(jour=date.today(), appels=0)
+    if (etat["appels"] >= reglages["appels_max_jour"]
+            or maintenant - etat.get("dernier_appel", -1e9) < reglages["pause_ia_min"] * 60):
+        return
+    etat["dernier_appel"] = maintenant
+    etat["appels"] += 1
+
+    valeurs = cfg.theme_de(conf)
+    for p in conf["portefeuille"]:
+        valeurs[p["ticker"]] = ", ".join(filter(None, (valeurs.get(p["ticker"]), "ta position")))
+    donnees = evt.preparer(inedites, valeurs, memoire.fiche(journal, surcharges=secteurs(conf), max_lignes=25))
+    resultat = hyp.avec_claude(donnees, conf["ia"], schema=evt.SCHEMA, consignes=evt.CONSIGNES,
+                               modele=reglages.get("modele"))
+    if resultat is None:
+        return  # Claude indisponible : les actus seront reproposées au prochain appel
+    journal.nouvelles_actus([f"evt:{a.lien}" for a in inedites])
+    effets = evt.lire_reponse(resultat, inedites, valeurs)
+    if not effets:
+        return
+
+    historiques = src_cours.historiques(list({e.ticker for e in effets}) + [conf["reference"], "EURUSD=X"],
+                                        periode="6mo")
+    reference = _dernier(historiques, conf["reference"])
+    eurusd = _dernier(historiques, "EURUSD=X")
+    detenues = {p["ticker"] for p in conf["portefeuille"]}
+    retenus = []
+    for e in effets:
+        cours = _dernier(historiques, e.ticker)
+        if cours is None:
+            continue
+        # notée deux fois : effet mesuré à 1 j, 1 sem., 4 sem., et hypothèse évaluée à son échéance
+        journal.noter_catalyseur(f"{e.actu.lien}#{e.ticker}", e.ticker, [e.categorie], e.actu.titre,
+                                 cours, reference)
+        journal.noter(Hypothese(e.ticker, e.sens, e.delai_jours, e.confiance,
+                                f"Événement {e.rang} : {e.chaine}", e.invalidation, origine="evenement"),
+                      cours, reference)
+        retenus.append(e)
+    alertes = [e for e in retenus if e.confiance >= reglages["confiance_alerte"]]
+    for e in alertes[: reglages["alertes_max"]]:
+        if not journal.alerte_inedite(f"evenement:{e.ticker}:{e.actu.lien}", e.chaine):
+            continue
+        texte, id_conseil = evt.formater(e), None
+        if e.sens == "hausse":
+            # même plan chiffré que pour une opportunité : stop, objectif, montant borné par la poche
+            plan, id_conseil = conseil_achat(conf, journal, e.ticker, historiques, eurusd)
+            if plan:
+                texte += "\n\n" + plan
+        elif e.ticker in detenues:
+            texte += "\n\n⚠️ Tu détiens cette valeur : vérifie ton stop et décide à froid si tu allèges."
+        notifieur.envoyer(texte, titre="Événement", urgent=e.confiance >= 4,
+                          boutons=boutons_conseil(conf, e.ticker, id_conseil))
+
+
+def boutons_conseil(conf, ticker, id_conseil):
+    """Boutons sous un conseil d'achat : déjà acheté, ignorer, et IBKR s'il est branché."""
+    if not id_conseil:
+        return None
+    boutons = [[("✅ Déjà acheté", f"achete:{id_conseil}"), ("❌ Ignorer", f"ignore:{id_conseil}")]]
+    if Courtier(conf["courtier"]).actif and contrat_ibkr(ticker):
+        boutons.insert(0, [("🛒 Acheter via IBKR", f"commande:{id_conseil}")])
+    return boutons
 
 
 def conseil_achat(conf, journal: Journal, ticker, historiques, eurusd) -> tuple[str | None, int | None]:
@@ -288,11 +370,11 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     actus = src_actus.collecter(conf["flux_rss"], tickers)
     journal.nouvelles_actus([a.lien for a in actus])
 
-    theme = conf["theme_ia"]
-    pistes = signaux.scanner_theme_ia(
+    themes = cfg.themes(conf)
+    pistes = [p for theme in themes.values() for p in signaux.scanner_theme_ia(
         theme["univers"], historiques, actus, theme["mots_cles"],
         conf["seuils"]["volume_inhabituel_x"], theme["pistes_max"],
-    )
+    )]
 
     intros = []
     if conf["introductions"]["nasdaq"]:
@@ -307,7 +389,7 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
         "date": date.today().isoformat(),
     }
     donnees = hyp.preparer_donnees(actus, pistes, intros, marche)
-    donnees += "\n\n" + memoire.fiche(journal, surcharges=conf["secteurs"])
+    donnees += "\n\n" + memoire.fiche(journal, surcharges=secteurs(conf))
     resultat = hyp.avec_claude(donnees, conf["ia"])
 
     if resultat:
@@ -325,9 +407,10 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
 
     journal.mesurer_catalyseurs({t: c for t in historiques if (c := _dernier(historiques, t)) is not None},
                                 reference)
-    classement = opp.scorer(theme["univers"], historiques, actus, set(),
-                            conf["seuils"]["volume_inhabituel_x"],
-                            journal.effet_par_categorie())[: theme["pistes_max"]]
+    effets = journal.effet_par_categorie()
+    classement = {theme["libelle"]: opp.scorer(theme["univers"], historiques, actus, set(),
+                                               conf["seuils"]["volume_inhabituel_x"], effets)[: theme["pistes_max"]]
+                  for theme in themes.values() if theme["univers"]}
     taux = {"USD": _dernier(src_cours.historiques(["EURUSD=X"], periode="5d"), "EURUSD=X")}
     avis = [cons.formater_avis(a, p.get("nom", a.ticker))
             for p, a in avis_portefeuille(conf, historiques, taux)]
@@ -354,17 +437,29 @@ def thermometre(conf, historiques) -> list[str]:
     return lignes
 
 
-def formater_resume(contexte, classement, hypotheses, intros_a_suivre, avis=()) -> str:
+def secteurs(conf) -> dict[str, str]:
+    """Secteur de chaque valeur pour la mémoire : la configuration d'abord, puis
+    le tableau de memoire.py, puis le thème qui la suit."""
+    par_theme = {t: lib for t, lib in cfg.theme_de(conf).items() if t not in memoire.SECTEURS}
+    return {**par_theme, **conf["secteurs"]}
+
+
+def formater_resume(contexte, classement: dict[str, list], hypotheses, intros_a_suivre, avis=()) -> str:
     parties = ["🌍 Contexte", contexte or "—", ""]
     if avis:
         parties.append("📋 Conseils sur tes positions")
         parties += list(avis)
         parties.append("")
-    parties.append("💎 Valeurs IA les mieux notées (score sur 100)")
-    if classement:
-        for o in classement:
-            motifs = ([f"catalyseur {', '.join(o.catalyseurs)}"] if o.catalyseurs else []) + o.signaux
-            parties.append(f"• {o.ticker} {o.score}/100 : {', '.join(motifs) or 'pas de signal fort'}")
+    parties.append("💎 Valeurs les mieux notées par thème (score sur 100)")
+    if any(classement.values()):
+        for libelle, valeurs in classement.items():
+            if not valeurs:
+                continue
+            parties.append(libelle)
+            for o in valeurs:
+                motifs = ([f"catalyseur {', '.join(o.catalyseurs)}"] if o.catalyseurs else []) + o.signaux
+                pea = " (PEA possible)" if cons.enveloppe_de(o.ticker) == "PEA possible" else ""
+                parties.append(f"• {o.ticker}{pea} {o.score}/100 : {', '.join(motifs) or 'pas de signal fort'}")
     else:
         parties.append("• Aucune donnée de cours disponible.")
     parties.append("")
@@ -415,6 +510,17 @@ def bilan(conf, journal: Journal, notifieur: Notifieur) -> None:
             + "\n\nL'outil n'est utile que si le gain moyen dépasse nettement la référence, "
             "frais compris, sur plusieurs mois."
         )
+    if stats["evaluees"]:
+        noms = {"ia": "résumé de Claude", "regles": "règles simples", "opportunite": "opportunités scorées",
+                "evenement": "actus non boursières"}
+        lignes = []
+        for origine, nom in noms.items():
+            o = journal.bilan(origine)
+            if o["evaluees"]:
+                lignes.append(f"• {nom} : {o['evaluees']} évaluées, {o['taux_reussite_pct']:.0f} % réussies, "
+                              f"gain moyen {o['gain_moyen_pct']:+.2f} %")
+        if lignes:
+            texte += "\n\nPar origine :\n" + "\n".join(lignes)
     c = journal.bilan_conseils()
     if c["clos"]:
         texte += (
@@ -440,6 +546,9 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
     heure, minute = (int(x) for x in str(plan["heure_resume"]).split(":"))
     dernier_resume = dernier_bilan = None
     offset = None
+    etat_evenements: dict = {}
+    pas_evenements = int(conf["evenements"]["intervalle_min"]) * 60
+    prochains_evenements = time.monotonic()
     log.info("Boucle démarrée : veille toutes les %s min.", plan["intervalle_veille_min"])
     while True:
         maintenant = datetime.now(PARIS)
@@ -451,18 +560,24 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
             if maintenant.day == int(plan["jour_bilan"]) and dernier_bilan != maintenant.date():
                 _proteger("bilan", bilan, conf, journal, notifieur)
                 dernier_bilan = maintenant.date()
-        # entre deux veilles, on écoute les boutons Telegram pour répondre vite
+        # entre deux veilles : actus non boursières toutes les quelques minutes,
+        # et écoute des boutons Telegram pour répondre vite
         fin = time.monotonic() + intervalle
         while (reste := fin - time.monotonic()) > 0:
+            if time.monotonic() >= prochains_evenements:
+                _proteger("evenements", evenements, conf, journal, notifieur, etat_evenements)
+                prochains_evenements = time.monotonic() + pas_evenements
+                continue
+            attente = max(1, min(50, reste, prochains_evenements - time.monotonic()))
             if notifieur.token and notifieur.chat_id:
                 try:
-                    offset = traiter_clics(journal, notifieur, offset, int(min(50, max(1, reste))),
+                    offset = traiter_clics(journal, notifieur, offset, int(attente),
                                            Courtier(conf["courtier"]), conf["portefeuille"])
                 except Exception:
                     log.exception("Échec du traitement d'un clic.")
                     time.sleep(5)
             else:
-                time.sleep(reste)
+                time.sleep(attente)
 
 
 def _proteger(nom, action, *args) -> None:
@@ -473,7 +588,8 @@ def _proteger(nom, action, *args) -> None:
         log.exception("Échec de « %s », nouvel essai au prochain passage.", nom)
 
 
-COMMANDES = {"veille": veille, "opportunites": opportunites, "resume": resume, "bilan": bilan, "boucle": boucle}
+COMMANDES = {"veille": veille, "opportunites": opportunites, "evenements": evenements, "resume": resume,
+             "bilan": bilan, "boucle": boucle}
 
 
 def main(argv: list[str] | None = None) -> None:

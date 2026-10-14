@@ -226,7 +226,7 @@ def scanner_theme_ia(
         nb_actus = sum(1 for a in actus if a.ticker == ticker and mentionne(a, mots_cles))
         if nb_actus:
             score += min(nb_actus, 5) * 0.5
-            raisons.append(f"{nb_actus} actu(s) récente(s) sur l'IA")
+            raisons.append(f"{nb_actus} actu(s) récente(s) sur le thème")
 
         niveau_rsi = ind.rsi(hist)
         if niveau_rsi is not None and niveau_rsi >= 75:

@@ -85,6 +85,70 @@ theme_ia:
   # Nombre maximum de pistes présentées chaque jour
   pistes_max: 5
 
+# Autres thèmes suivis, au même titre que l'IA : chacun a son univers et ses
+# mots-clés, et passe par le même score sur 100 (alertes « Opportunité » et
+# classement du résumé). Ajoute, retire ou renomme librement.
+# Les valeurs cotées en euros sont marquées « PEA possible » (à confirmer chez
+# ton courtier) ; les autres vont sur le compte-titres. N'utilise que des
+# tickers en euros ou en dollars : les autres devises ne sont pas converties.
+# La note en commentaire est un jugement de départ (octobre 2026) sur le
+# secteur, les derniers résultats, le prix déjà payé et la solidité ; le bot
+# recalcule chaque jour son propre score avec les cours et les actus.
+themes:
+  electrification:
+    libelle: Électrification et réseaux
+    univers:
+      - ENR.DE     # 78 Siemens Energy : carnet record, prévisions relevées
+      - LR.PA      # 74 Legrand : data centers, prévisions relevées
+      - SU.PA      # 72 Schneider Electric
+      - NEX.PA     # 70 Nexans : prévisions relevées, dette en hausse après rachat
+      - PRY.MI     # 68 Prysmian, câbles haute tension
+      - GEV        # 66 GE Vernova, chère
+      - SIE.DE     # 64 Siemens
+      - ETN        # 62 Eaton
+      - IBE.MC     # 60 Iberdrola, réseaux régulés, freinée par les taux
+    mots_cles: [grid, power demand, electrification, transformer, utility, data center, réseau électrique]
+    pistes_max: 3
+  sante:
+    libelle: Santé
+    univers:
+      - LLY        # 66 Eli Lilly, obésité
+      - ARGX.BR    # 66 argenx, biotech en croissance
+      - SAN.PA     # 64 Sanofi
+      - EL.PA      # 62 EssilorLuxottica
+      - VRTX       # 62 Vertex
+      - ISRG       # 62 Intuitive Surgical, chère
+    mots_cles: [FDA, approval, phase 3, trial, obesity, GLP-1, drug, autorisation, essai clinique]
+    pistes_max: 3
+  defense:
+    libelle: Défense et aéronautique
+    univers:
+      - SAF.PA     # 82 Safran : +19 % au 1er semestre, prévisions relevées, trésorerie nette
+      - AIR.PA     # 72 Airbus : carnet record, trésorerie consommée par la montée en cadence
+      - HO.PA      # 68 Thales
+      - LDO.MI     # 62 Leonardo
+    mots_cles: [defense, defence, NATO, military, missile, aircraft, armement, OTAN]
+    pistes_max: 3
+  banques:
+    libelle: Banques européennes
+    univers:
+      - GLE.PA     # 70 Société Générale : bénéfice record, rachat de 1,5 Md€
+      - UCG.MI     # 66 UniCredit
+      - BNP.PA     # 64 BNP Paribas, exposée à la dette française
+      - INGA.AS    # 62 ING
+      - SAN.MC     # 62 Santander
+      - ISP.MI     # 62 Intesa Sanpaolo
+    mots_cles: [ECB, BCE, interest rate, net interest income, buyback, rachat d'actions]
+    pistes_max: 3
+  materiaux:
+    libelle: Matériaux critiques
+    univers:
+      - AI.PA      # 62 Air Liquide, la plus défensive
+      - CCJ        # 60 Cameco, uranium, chère
+      - FCX        # 60 Freeport-McMoRan, cuivre
+    mots_cles: [copper, lithium, rare earth, uranium, mine, cuivre, terres rares]
+    pistes_max: 2
+
 # Opportunités scorées sur 100 : un catalyseur frais dans l'actu (partenariat,
 # contrat, prise de participation, résultats relevés) confirmé par le marché
 # (hausse, volumes). Contrôlé à chaque passage de la veille ; au-dessus du
@@ -94,6 +158,29 @@ opportunites:
   seuil_alerte: 60
   alertes_max: 3              # par passage, pour ne pas être noyé
   modele: claude-sonnet-5-5   # modèle plus économique pour ces appels fréquents
+
+# Actus non boursières : actualité mondiale et sources officielles (autorisations
+# de médicaments, contrats du Pentagone, énergie), relues toutes les 5 minutes.
+# Claude relie chaque événement aux valeurs suivies, surtout en second rang
+# (fournisseur, client, coût d'une matière). Chaque lien est mesuré à 1 jour,
+# 1 semaine et 4 semaines ; le bilan dit si ces pistes battent les autres.
+# Coût : au plus un appel à Claude par quart d'heure, 40 par jour.
+evenements:
+  actives: true
+  intervalle_min: 5
+  pause_ia_min: 15
+  appels_max_jour: 40
+  confiance_alerte: 3         # alerte Telegram à partir de 3/5 ; en dessous, juste noté au journal
+  alertes_max: 3
+  modele: claude-sonnet-5-5
+  flux:
+    - https://feeds.bbci.co.uk/news/world/rss.xml
+    - https://feeds.bbci.co.uk/news/business/rss.xml
+    - https://www.lemonde.fr/international/rss_full.xml
+    - https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml
+    - https://www.ema.europa.eu/en/news.xml
+    - https://www.war.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=400&Site=945&max=10
+    - https://www.eia.gov/rss/todayinenergy.xml
 
 # Phase 2 : conseils d'achat et de vente chiffrés, que tu passes toi-même.
 # Chaque opportunité retenue reçoit un plan : prix maximum, stop, objectif et
@@ -131,7 +218,7 @@ flux_rss:
   - https://www.federalreserve.gov/feeds/press_all.xml
   - https://services.lesechos.fr/rss/les-echos-finance-marches.xml
   # Actus par valeur (Yahoo Finance) : ajoutées automatiquement pour le
-  # portefeuille et l'univers IA, inutile de les lister ici.
+  # portefeuille et l'univers de chaque thème, inutile de les lister ici.
 
 ia:
   activee: true
