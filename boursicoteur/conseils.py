@@ -30,6 +30,9 @@ def mouvement_moyen(hist: pd.DataFrame, jours: int = 14) -> float | None:
 
 
 SUFFIXES_EURO = {"PA", "AS", "DE", "MI", "MC", "BR", "LS", "F", "VI", "HE", "IR"}
+# Places de l'Union européenne et de l'EEE hors zone euro : éligibles au PEA
+# (Stockholm, Copenhague, Oslo, Varsovie, Prague, Budapest). Pas Londres ni Zurich.
+SUFFIXES_PEA = SUFFIXES_EURO | {"ST", "CO", "OL", "WA", "PR", "BD"}
 
 
 def devise_de(ticker: str) -> str:
@@ -43,7 +46,7 @@ def devise_de(ticker: str) -> str:
 
 def enveloppe_de(ticker: str) -> str:
     """Indication seulement : l'éligibilité au PEA se vérifie chez le courtier."""
-    if "." in ticker and ticker.rsplit(".", 1)[1] in SUFFIXES_EURO:
+    if "." in ticker and ticker.rsplit(".", 1)[1] in SUFFIXES_PEA:
         return "PEA possible"
     return "compte-titres"
 

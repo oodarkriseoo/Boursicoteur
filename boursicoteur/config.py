@@ -19,6 +19,8 @@ DEFAUTS: dict[str, Any] = {
         "perte_vs_prix_revient_pct": 20.0,
         "vix_alerte": 30.0,
         "volume_inhabituel_x": 3.0,
+        "concentration_max_pct": 25.0,
+        "drawdown_alerte_pct": 10.0,
     },
     "secteurs": {},  # ticker → secteur, en complément de memoire.SECTEURS
     "theme_ia": {"univers": [], "mots_cles": [], "pistes_max": 5},
