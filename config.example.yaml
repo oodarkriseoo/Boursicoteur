@@ -4,6 +4,8 @@
 
 # Tes positions actuelles. Le ticker est celui de Yahoo Finance
 # (suffixe .PA pour Paris, .AS pour Amsterdam, rien pour les US).
+# Le prix de revient est en euros. Pour une valeur cotée dans une autre
+# devise (actions US), ajoute « devise: USD » : il sera converti au taux du jour.
 portefeuille:
   - ticker: CW8.PA
     nom: Amundi MSCI World (PEA)

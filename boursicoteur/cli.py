@@ -40,9 +40,14 @@ def _dernier(historiques, ticker):
 
 def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
     portefeuille = [p["ticker"] for p in conf["portefeuille"]]
-    historiques = src_cours.historiques(portefeuille + [VIX], periode="6mo")
+    devises = {p["devise"] for p in conf["portefeuille"] if p.get("devise", "EUR") != "EUR"}
+    paires = {d: f"EUR{d}=X" for d in devises}
+    historiques = src_cours.historiques(portefeuille + [VIX] + list(paires.values()), periode="6mo")
+    taux = {d: _dernier(historiques, paire) for d, paire in paires.items()}
 
-    alertes = signaux.alertes_portefeuille(conf["portefeuille"], historiques, conf["seuils"])
+    alertes = signaux.alertes_portefeuille(
+        conf["portefeuille"], historiques, conf["seuils"], {d: t for d, t in taux.items() if t}
+    )
     alertes += signaux.alerte_marche(historiques.get(VIX), conf["seuils"]["vix_alerte"])
     for alerte in alertes:
         jour = date.min if alerte.unique else None

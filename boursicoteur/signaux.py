@@ -35,7 +35,12 @@ def alertes_portefeuille(
     portefeuille: list[dict[str, Any]],
     historiques: dict[str, pd.DataFrame],
     seuils: dict[str, float],
+    taux_change: dict[str, float] | None = None,
 ) -> list[Alerte]:
+    """``taux_change`` donne, pour chaque devise, combien vaut 1 € (ex. USD : 1,15).
+    Il sert aux positions cotées hors euro (champ ``devise`` de la position),
+    dont le prix de revient est saisi en euros."""
+    taux_change = taux_change or {}
     alertes: list[Alerte] = []
     for position in portefeuille:
         ticker = position["ticker"]
@@ -61,6 +66,11 @@ def alertes_portefeuille(
             )
 
         prix_revient = position.get("prix_revient")
+        devise = position.get("devise", "EUR")
+        if prix_revient and devise != "EUR":
+            # prix de revient en euros converti dans la devise de cotation
+            taux = taux_change.get(devise)
+            prix_revient = prix_revient * taux if taux else None
         if prix_revient:
             dernier = float(hist["Close"].dropna().iloc[-1])
             perte = (dernier / prix_revient - 1) * 100
