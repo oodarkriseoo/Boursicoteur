@@ -96,6 +96,11 @@ def suivre_conseils(journal: Journal, historiques) -> list[str]:
         if cours is None:
             continue
         resultat = c["montant_eur"] * (cours / c["cours"] - 1) - c["frais_eur"]
+        if c["decision"] == "ignore":
+            # suivi silencieux : le bilan mesure aussi les conseils que tu as écartés
+            if cours <= c["stop"] or cours >= c["objectif"]:
+                journal.clore_conseil(c["id"], "stop" if cours <= c["stop"] else "objectif", cours)
+            continue
         if cours <= c["stop"]:
             journal.clore_conseil(c["id"], "stop", cours)
             messages.append(
@@ -156,10 +161,12 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
         if not journal.alerte_inedite(f"opportunite:{o.ticker}", f"score {o.score}"):
             continue
         texte = opp.formater(o)
-        plan = conseil_achat(conf, journal, o.ticker, historiques, eurusd)
+        plan, id_conseil = conseil_achat(conf, journal, o.ticker, historiques, eurusd)
         if plan:
             texte += "\n\n" + plan
-        notifieur.envoyer(texte, titre="Opportunité", urgent=True)
+        boutons = ([("✅ J'ai acheté", f"achete:{id_conseil}"), ("❌ Ignorer", f"ignore:{id_conseil}")]
+                   if id_conseil else None)
+        notifieur.envoyer(texte, titre="Opportunité", urgent=True, boutons=boutons)
         # notée au journal : le bilan dira si les opportunités scorées tiennent leurs promesses
         journal.noter(
             Hypothese(o.ticker, "hausse", 20, 3 if o.score >= 80 else 2,
@@ -170,22 +177,43 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
         )
 
 
-def conseil_achat(conf, journal: Journal, ticker, historiques, eurusd) -> str | None:
-    """Plan d'achat chiffré, noté au journal pour le suivi du stop et de l'objectif."""
+def conseil_achat(conf, journal: Journal, ticker, historiques, eurusd) -> tuple[str | None, int | None]:
+    """Plan d'achat chiffré, noté au journal pour le suivi du stop et de l'objectif.
+    Renvoie le texte et l'identifiant du conseil (pour les boutons)."""
     reglages = conf["conseils"]
     hist = historiques.get(ticker)
     if not reglages["actives"] or hist is None:
-        return None
+        return None, None
     taux = 1.0 if cons.devise_de(ticker) == "EUR" else eurusd
     if not taux:
-        return None  # sans taux de change, le montant en euros serait faux
+        return None, None  # sans taux de change, le montant en euros serait faux
     plan = cons.plan_achat(ticker, hist, reglages, taux)
     if plan is None:
-        return None
-    if journal.ouvrir_conseil(ticker, plan.cours, plan.stop, plan.objectif, plan.montant_eur,
-                              2 * reglages["frais_ordre_eur"]) is None:
-        return f"(Un conseil d'achat sur {ticker} est déjà en cours : pas de nouvel achat.)"
-    return plan.formater()
+        return None, None
+    id_conseil = journal.ouvrir_conseil(ticker, plan.cours, plan.stop, plan.objectif,
+                                        plan.montant_eur, 2 * reglages["frais_ordre_eur"])
+    if id_conseil is None:
+        return f"(Un conseil d'achat sur {ticker} est déjà en cours : pas de nouvel achat.)", None
+    return plan.formater(), id_conseil
+
+
+def traiter_clics(journal: Journal, notifieur: Notifieur, offset, attente: int):
+    """Enregistre « J'ai acheté » / « Ignorer ». Renvoie le nouvel offset Telegram."""
+    clics, offset = notifieur.clics(offset, attente)
+    for clic in clics:
+        decision, _, id_texte = str(clic.get("data", "")).partition(":")
+        conseil = journal.conseil(int(id_texte)) if id_texte.isdigit() else None
+        if decision not in ("achete", "ignore") or conseil is None:
+            notifieur.accuser_clic(clic, "Bouton inconnu ou expiré.")
+            continue
+        journal.decider_conseil(conseil["id"], decision)
+        if decision == "achete":
+            confirmation = (f"✅ Achat {conseil['ticker']} noté. Je te préviens au stop "
+                            f"{conseil['stop']:.2f} ou à l'objectif {conseil['objectif']:.2f}.")
+        else:
+            confirmation = f"❌ {conseil['ticker']} ignoré. Je le suis quand même pour le bilan, sans t'alerter."
+        notifieur.accuser_clic(clic, confirmation)
+    return offset
 
 
 def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
@@ -323,6 +351,8 @@ def bilan(conf, journal: Journal, notifieur: Notifieur) -> None:
             f"Gagnants : {c['gagnants_pct']:.0f} %\n"
             f"Résultat net si tous suivis, frais compris : {c['gain_net_eur']:+.0f} €"
         )
+        if c["suivis"]:
+            texte += f"\nSur ceux que tu as achetés ({c['suivis']}) : {c['gain_net_suivis_eur']:+.0f} €"
     notifieur.envoyer(texte, titre="Bilan des hypothèses")
 
 
@@ -331,6 +361,7 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
     intervalle = int(plan["intervalle_veille_min"]) * 60
     heure, minute = (int(x) for x in str(plan["heure_resume"]).split(":"))
     dernier_resume = dernier_bilan = None
+    offset = None
     log.info("Boucle démarrée : veille toutes les %s min.", plan["intervalle_veille_min"])
     while True:
         maintenant = datetime.now(PARIS)
@@ -342,7 +373,17 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
             if maintenant.day == int(plan["jour_bilan"]) and dernier_bilan != maintenant.date():
                 _proteger("bilan", bilan, conf, journal, notifieur)
                 dernier_bilan = maintenant.date()
-        time.sleep(intervalle)
+        # entre deux veilles, on écoute les boutons Telegram pour répondre vite
+        fin = time.monotonic() + intervalle
+        while (reste := fin - time.monotonic()) > 0:
+            if notifieur.token and notifieur.chat_id:
+                try:
+                    offset = traiter_clics(journal, notifieur, offset, int(min(50, max(1, reste))))
+                except Exception:
+                    log.exception("Échec du traitement d'un clic.")
+                    time.sleep(5)
+            else:
+                time.sleep(reste)
 
 
 def _proteger(nom, action, *args) -> None:
