@@ -22,6 +22,14 @@ DEFAUTS: dict[str, Any] = {
     "theme_ia": {"univers": [], "mots_cles": [], "pistes_max": 5},
     "opportunites": {"activee": True, "seuil_alerte": 60, "alertes_max": 3,
                      "modele": "claude-sonnet-5-5"},
+    "conseils": {
+        "actives": True,
+        "poche_eur": 1000.0,
+        "risque_par_position_pct": 2.0,
+        "position_max_pct": 25.0,
+        "frais_ordre_eur": 1.0,
+        "ratio_objectif": 2.0,
+    },
     "introductions": {
         "nasdaq": True,
         "sec_s1": True,
