@@ -91,82 +91,63 @@ theme_ia:
 # Les valeurs cotées en euros sont marquées « PEA possible » (à confirmer chez
 # ton courtier) ; les autres vont sur le compte-titres. N'utilise que des
 # tickers en euros ou en dollars : les autres devises ne sont pas converties.
+# La note en commentaire est un jugement de départ (octobre 2026) sur le
+# secteur, les derniers résultats, le prix déjà payé et la solidité ; le bot
+# recalcule chaque jour son propre score avec les cours et les actus.
 themes:
   electrification:
     libelle: Électrification et réseaux
     univers:
-      - SU.PA      # Schneider Electric
-      - LR.PA      # Legrand
-      - NEX.PA     # Nexans, câbles
-      - PRY.MI     # Prysmian, câbles
-      - ENR.DE     # Siemens Energy, turbines et réseaux
-      - SIE.DE     # Siemens
-      - IBE.MC     # Iberdrola, réseaux régulés
-      - GEV        # GE Vernova
-      - ETN        # Eaton
-      - PWR        # Quanta Services
+      - ENR.DE     # 78 Siemens Energy : carnet record, prévisions relevées
+      - LR.PA      # 74 Legrand : data centers, prévisions relevées
+      - SU.PA      # 72 Schneider Electric
+      - NEX.PA     # 70 Nexans : prévisions relevées, dette en hausse après rachat
+      - PRY.MI     # 68 Prysmian, câbles haute tension
+      - GEV        # 66 GE Vernova, chère
+      - SIE.DE     # 64 Siemens
+      - ETN        # 62 Eaton
+      - IBE.MC     # 60 Iberdrola, réseaux régulés, freinée par les taux
     mots_cles: [grid, power demand, electrification, transformer, utility, data center, réseau électrique]
     pistes_max: 3
   sante:
     libelle: Santé
     univers:
-      - SAN.PA     # Sanofi
-      - EL.PA      # EssilorLuxottica
-      - IPN.PA     # Ipsen
-      - ARGX.BR    # argenx
-      - SHL.DE     # Siemens Healthineers
-      - DIM.PA     # Sartorius Stedim
-      - ERF.PA     # Eurofins
-      - NVO        # Novo Nordisk (ADR US, compte-titres)
-      - LLY        # Eli Lilly
-      - VRTX       # Vertex
-      - AMGN       # Amgen
-      - ISRG       # Intuitive Surgical
+      - LLY        # 66 Eli Lilly, obésité
+      - ARGX.BR    # 66 argenx, biotech en croissance
+      - SAN.PA     # 64 Sanofi
+      - EL.PA      # 62 EssilorLuxottica
+      - VRTX       # 62 Vertex
+      - ISRG       # 62 Intuitive Surgical, chère
     mots_cles: [FDA, approval, phase 3, trial, obesity, GLP-1, drug, autorisation, essai clinique]
-    pistes_max: 3
-  materiaux:
-    libelle: Matériaux critiques
-    univers:
-      - MT.AS      # ArcelorMittal
-      - ERA.PA     # Eramet, nickel et lithium
-      - UMI.BR     # Umicore, batteries et recyclage
-      - AI.PA      # Air Liquide
-      - FCX        # Freeport-McMoRan, cuivre
-      - SCCO       # Southern Copper
-      - RIO        # Rio Tinto (ADR US)
-      - CCJ        # Cameco, uranium
-      - MP         # MP Materials, terres rares
-      - ALB        # Albemarle, lithium
-    mots_cles: [copper, lithium, rare earth, uranium, mine, steel, cuivre, terres rares]
     pistes_max: 3
   defense:
     libelle: Défense et aéronautique
     univers:
-      - HO.PA      # Thales
-      - SAF.PA     # Safran
-      - AM.PA      # Dassault Aviation
-      - AIR.PA     # Airbus
-      - EXA.PA     # Exail, petite valeur
-      - RHM.DE     # Rheinmetall
-      - HAG.DE     # Hensoldt
-      - R3NK.DE    # Renk
-      - LDO.MI     # Leonardo
-    mots_cles: [defense, defence, NATO, military, missile, armement, OTAN]
+      - SAF.PA     # 82 Safran : +19 % au 1er semestre, prévisions relevées, trésorerie nette
+      - AIR.PA     # 72 Airbus : carnet record, trésorerie consommée par la montée en cadence
+      - HO.PA      # 68 Thales
+      - LDO.MI     # 62 Leonardo
+    mots_cles: [defense, defence, NATO, military, missile, aircraft, armement, OTAN]
     pistes_max: 3
   banques:
     libelle: Banques européennes
     univers:
-      - BNP.PA
-      - GLE.PA     # Société Générale
-      - ACA.PA     # Crédit Agricole
-      - INGA.AS    # ING
-      - SAN.MC     # Santander
-      - BBVA.MC
-      - UCG.MI     # UniCredit
-      - ISP.MI     # Intesa Sanpaolo
-      - DBK.DE     # Deutsche Bank
+      - GLE.PA     # 70 Société Générale : bénéfice record, rachat de 1,5 Md€
+      - UCG.MI     # 66 UniCredit
+      - BNP.PA     # 64 BNP Paribas, exposée à la dette française
+      - INGA.AS    # 62 ING
+      - SAN.MC     # 62 Santander
+      - ISP.MI     # 62 Intesa Sanpaolo
     mots_cles: [ECB, BCE, interest rate, net interest income, buyback, rachat d'actions]
     pistes_max: 3
+  materiaux:
+    libelle: Matériaux critiques
+    univers:
+      - AI.PA      # 62 Air Liquide, la plus défensive
+      - CCJ        # 60 Cameco, uranium, chère
+      - FCX        # 60 Freeport-McMoRan, cuivre
+    mots_cles: [copper, lithium, rare earth, uranium, mine, cuivre, terres rares]
+    pistes_max: 2
 
 # Opportunités scorées sur 100 : un catalyseur frais dans l'actu (partenariat,
 # contrat, prise de participation, résultats relevés) confirmé par le marché
