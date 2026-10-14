@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boursicoteur"
+version = "0.1.0"
+description = "Veille marché 24/7 : actus, indicateurs, hypothèses haussières/baissières et alertes (aucun ordre passé)."
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=1.13",
+    "feedparser>=6.0",
+    "pandas>=2.0",
+    "PyYAML>=6.0",
+    "requests>=2.31",
+    "yfinance>=0.2.40",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+boursicoteur = "boursicoteur.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["boursicoteur*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
