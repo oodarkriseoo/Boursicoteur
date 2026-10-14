@@ -6,6 +6,8 @@
 # (suffixe .PA pour Paris, .AS pour Amsterdam, rien pour les US).
 # Le prix de revient est en euros. Pour une valeur cotée dans une autre
 # devise (actions US), ajoute « devise: USD » : il sera converti au taux du jour.
+# Facultatif : « horizon: long » ou « court ». Par défaut, les positions du PEA
+# sont de long terme : le bot propose de les réévaluer au lieu de les vendre.
 # Facultatif : « stop: 95.0 » (dans la devise de cotation) envoie une alerte
 # dès que le cours passe sous ce niveau, ta règle de sortie décidée à froid.
 portefeuille:

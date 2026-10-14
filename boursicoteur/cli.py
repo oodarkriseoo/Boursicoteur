@@ -73,8 +73,8 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
     for texte in suivre_conseils(journal, historiques):
         notifieur.envoyer(texte, titre="Conseil de vente", urgent=True)
     for position, avis in avis_portefeuille(conf, historiques, taux):
-        if avis.action == "garder":
-            continue
+        if avis.action in ("garder", "réévaluer"):
+            continue  # long terme : le résumé suffit, l'alerte de baisse inhabituelle veille
         # une fois par mois et par avis : le changement d'avis compte, pas sa répétition
         cle = f"avis:{avis.ticker}:{avis.action}:{date.today():%Y-%m}"
         texte = cons.formater_avis(avis, position.get("nom", avis.ticker))

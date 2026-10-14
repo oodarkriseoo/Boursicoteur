@@ -108,18 +108,37 @@ def plan_achat(ticker: str, hist: pd.DataFrame, reglages: dict[str, Any],
 @dataclass
 class Avis:
     ticker: str
-    action: str  # garder, alléger, prendre des gains, vendre
+    action: str  # garder, alléger, prendre des gains, vendre, réévaluer (long terme)
     raisons: list[str] = field(default_factory=list)
     stop_suiveur: float | None = None
 
     @property
     def emoji(self) -> str:
-        return {"vendre": "🔴", "alléger": "🟠", "prendre des gains": "💰"}.get(self.action, "🟢")
+        return {"vendre": "🔴", "alléger": "🟠", "prendre des gains": "💰",
+                "réévaluer": "🟡"}.get(self.action, "🟢")
+
+
+def horizon_de(position: dict[str, Any]) -> str:
+    """« long » pour une position de fond (par défaut celles du PEA), « court » sinon."""
+    return position.get("horizon") or ("long" if position.get("enveloppe") == "PEA" else "court")
 
 
 def avis_position(position: dict[str, Any], hist: pd.DataFrame,
                   prix_revient: float | None) -> Avis | None:
-    """Avis sur une position détenue. Le stop suiveur (plus haut de 3 mois moins
+    """Avis sur une position détenue. Pour une position de long terme, la
+    règle de trading (stop suiveur, tendance) ne commande pas la vente : elle
+    invite à réévaluer la raison de l'achat.
+    """
+    avis = _avis_technique(position, hist, prix_revient)
+    if avis and horizon_de(position) == "long" and avis.action in ("vendre", "alléger"):
+        avis.action = "réévaluer"
+        avis.raisons.append("position de long terme : la raison de ton achat tient-elle toujours ?")
+    return avis
+
+
+def _avis_technique(position: dict[str, Any], hist: pd.DataFrame,
+                    prix_revient: float | None) -> Avis | None:
+    """Avis selon les règles de trading. Le stop suiveur (plus haut de 3 mois moins
     3 mouvements moyens) protège les gains : il monte avec le cours, jamais l'inverse."""
     cloture = hist["Close"].dropna()
     amplitude = mouvement_moyen(hist)
@@ -158,6 +177,6 @@ def avis_position(position: dict[str, Any], hist: pd.DataFrame,
 
 def formater_avis(avis: Avis, nom: str) -> str:
     texte = f"{avis.emoji} {nom} ({avis.ticker}) : {avis.action}. {', '.join(avis.raisons)}."
-    if avis.stop_suiveur and avis.action != "vendre":
+    if avis.stop_suiveur and avis.action not in ("vendre", "réévaluer"):
         texte += f" Sortie si clôture sous {avis.stop_suiveur:.2f}."
     return texte
