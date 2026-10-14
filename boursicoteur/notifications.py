@@ -83,14 +83,16 @@ class Notifieur:
                 clics.append(clic)
         return clics, offset
 
-    def accuser_clic(self, clic: dict[str, Any], confirmation: str, message: bool = True) -> None:
-        """Retire les boutons du message et confirme ce qui a été noté."""
+    def accuser_clic(self, clic: dict[str, Any], confirmation: str, message: bool = True,
+                     retirer: bool = True) -> None:
+        """Confirme le clic ; retire les boutons du message (``retirer``) et
+        envoie la confirmation en message (``message``)."""
         self._poster(self._api("answerCallbackQuery"),
                      json={"callback_query_id": clic["id"], "text": confirmation})
-        message = clic.get("message", {})
-        if message:
+        origine = clic.get("message", {})
+        if origine and retirer:
             self._poster(self._api("editMessageReplyMarkup"), json={
-                "chat_id": self.chat_id, "message_id": message["message_id"],
+                "chat_id": self.chat_id, "message_id": origine["message_id"],
                 "reply_markup": {"inline_keyboard": []},
             })
         if message:

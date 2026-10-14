@@ -10,12 +10,15 @@ class FauxNotifieur:
     token = chat_id = "x"
 
     def __init__(self, clics):
-        self._clics, self.accuses = clics, []
+        self._clics, self.accuses, self.envois = clics, [], []
+
+    def envoyer(self, texte, titre="", urgent=False, boutons=None):
+        self.envois.append((titre, texte))
 
     def clics(self, offset, attente):
         return self._clics, 42
 
-    def accuser_clic(self, clic, confirmation, message=True):
+    def accuser_clic(self, clic, confirmation, message=True, retirer=True):
         self.accuses.append(confirmation)
 
 
@@ -71,3 +74,30 @@ def test_tickers_a_suffixe_non_cliquables():
     assert "(<code>SAN.PA</code>)" in texte and "<code>ASML.AS</code>" in texte
     assert "&lt; MM20 &amp;" in texte
     assert "https://x.com/a.PA" in texte  # les vrais liens restent intacts
+
+
+def test_bouton_actus_recolte_a_la_demande_sans_ia():
+    from boursicoteur.sources.actus import Actu
+
+    def collecter(flux, tickers):
+        assert tickers == ["MC.PA", "SAN.PA"]
+        return [Actu(f"Titre {i}", f"https://ex.com/{i}", "Yahoo", ticker="MC.PA") for i in range(5)]
+
+    portefeuille = [{"ticker": "MC.PA", "nom": "LVMH"}, {"ticker": "SAN.PA", "nom": "Sanofi"}]
+    notif = FauxNotifieur([clic("actus:portefeuille")])
+    cli.traiter_clics(Journal(":memory:"), notif, None, 1, portefeuille=portefeuille, collecter=collecter)
+    titre, texte = notif.envois[0]
+    assert titre == "Actus de tes positions"
+    assert "LVMH (MC.PA)" in texte and "https://ex.com/2" in texte
+    assert "https://ex.com/3" not in texte  # 3 actus par valeur au plus
+    assert "Sanofi" not in texte  # rien à dire sur Sanofi
+
+
+def test_accuser_clic_peut_garder_le_bouton(monkeypatch):
+    monkeypatch.setenv("TG_T", "jeton")
+    monkeypatch.setenv("TG_C", "123")
+    appels = []
+    monkeypatch.setattr(Notifieur, "_poster", staticmethod(lambda url, **kw: appels.append(url.rsplit("/", 1)[1])))
+    n = Notifieur({"telegram": {"token_env": "TG_T", "chat_id_env": "TG_C"}})
+    n.accuser_clic(clic("actus:portefeuille"), "ok", message=False, retirer=False)
+    assert appels == ["answerCallbackQuery"]
