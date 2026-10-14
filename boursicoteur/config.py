@@ -13,12 +13,15 @@ DEFAUTS: dict[str, Any] = {
     "reference": "CW8.PA",
     "seuils": {
         "baisse_seance_pct": 5.0,
+        "chute_rapide_pct": 3.0,
         "baisse_depuis_sommet_pct": 15.0,
         "perte_vs_prix_revient_pct": 20.0,
         "vix_alerte": 30.0,
         "volume_inhabituel_x": 3.0,
     },
     "theme_ia": {"univers": [], "mots_cles": [], "pistes_max": 5},
+    "opportunites": {"activee": True, "seuil_alerte": 60, "alertes_max": 3,
+                     "modele": "claude-sonnet-5-5"},
     "introductions": {
         "nasdaq": True,
         "sec_s1": True,

@@ -36,23 +36,66 @@ def alertes_portefeuille(
     historiques: dict[str, pd.DataFrame],
     seuils: dict[str, float],
     taux_change: dict[str, float] | None = None,
+    cours_precedents: dict[str, float] | None = None,
+    titres: dict[str, Actu] | None = None,
 ) -> list[Alerte]:
     """``taux_change`` donne, pour chaque devise, combien vaut 1 € (ex. USD : 1,15).
     Il sert aux positions cotées hors euro (champ ``devise`` de la position),
-    dont le prix de revient est saisi en euros."""
+    dont le prix de revient est saisi en euros.
+
+    ``cours_precedents`` : cours relevés au contrôle précédent, pour repérer
+    une chute rapide en cours de séance. ``titres`` : dernière actu connue par
+    valeur, jointe aux alertes de chute pour en comprendre la cause."""
     taux_change = taux_change or {}
+    cours_precedents = cours_precedents or {}
+    titres = titres or {}
     alertes: list[Alerte] = []
     for position in portefeuille:
         ticker = position["ticker"]
         nom = position.get("nom", ticker)
         hist = historiques.get(ticker)
-        if hist is None:
+        if hist is None or hist["Close"].dropna().empty:
             continue
+        dernier = float(hist["Close"].dropna().iloc[-1])
+
+        prix_revient = position.get("prix_revient")
+        devise = position.get("devise", "EUR")
+        if prix_revient and devise != "EUR":
+            # prix de revient en euros converti dans la devise de cotation
+            taux = taux_change.get(devise)
+            prix_revient = prix_revient * taux if taux else None
+        details = _details_chute(hist, dernier, prix_revient, titres.get(ticker))
 
         seance = ind.variation_seance_pct(hist)
         if seance is not None and seance <= -seuils["baisse_seance_pct"]:
+            # nouvelle alerte dans la journée à chaque palier de 3 points
             alertes.append(
-                Alerte(f"seance:{ticker}", f"📉 {nom} ({ticker}) perd {seance:.1f} % sur la séance.")
+                Alerte(
+                    f"seance:{ticker}:{palier(seance, 3)}",
+                    f"📉 {nom} ({ticker}) perd {seance:.1f} % sur la séance.\n{details}",
+                )
+            )
+
+        precedent = cours_precedents.get(ticker)
+        if precedent:
+            chute = (dernier / precedent - 1) * 100
+            if chute <= -seuils["chute_rapide_pct"]:
+                alertes.append(
+                    Alerte(
+                        f"rapide:{ticker}:{dernier:.6g}",
+                        f"🚨 Chute rapide : {nom} ({ticker}) a perdu {-chute:.1f} % depuis le "
+                        f"dernier contrôle ({precedent:.2f} → {dernier:.2f}).\n{details}",
+                    )
+                )
+
+        stop = position.get("stop")
+        if stop and dernier <= stop:
+            alertes.append(
+                Alerte(
+                    f"stop:{ticker}",
+                    f"⛔ {nom} ({ticker}) est passé sous ton seuil de sortie {stop:.2f} "
+                    f"(cours {dernier:.2f}). C'est le moment d'appliquer la règle que tu t'étais fixée.\n{details}",
+                )
             )
 
         sommet = ind.ecart_au_plus_haut_pct(hist.iloc[-63:])
@@ -65,14 +108,7 @@ def alertes_portefeuille(
                 )
             )
 
-        prix_revient = position.get("prix_revient")
-        devise = position.get("devise", "EUR")
-        if prix_revient and devise != "EUR":
-            # prix de revient en euros converti dans la devise de cotation
-            taux = taux_change.get(devise)
-            prix_revient = prix_revient * taux if taux else None
         if prix_revient:
-            dernier = float(hist["Close"].dropna().iloc[-1])
             perte = (dernier / prix_revient - 1) * 100
             if perte <= -seuils["perte_vs_prix_revient_pct"]:
                 alertes.append(
@@ -85,6 +121,25 @@ def alertes_portefeuille(
                     )
                 )
     return alertes
+
+
+def _details_chute(hist: pd.DataFrame, dernier: float, prix_revient: float | None,
+                   actu: Actu | None) -> str:
+    """Ce qui aide à décider vite : où tu en es, le support proche, la cause probable."""
+    lignes = []
+    if prix_revient:
+        lignes.append(f"Par rapport à ton prix de revient : {(dernier / prix_revient - 1) * 100:+.1f} %.")
+    clotures = hist["Close"].dropna()
+    if len(clotures) > 20:
+        plus_bas = float(clotures.iloc[-21:-1].min())
+        if dernier > plus_bas:
+            lignes.append(f"Plus bas des 20 dernières séances : {plus_bas:.2f}. "
+                          "S'il casse, la baisse a plus de chances de continuer.")
+        else:
+            lignes.append(f"Le cours est sous son plus bas des 20 dernières séances ({plus_bas:.2f}).")
+    if actu is not None:
+        lignes.append(f"Dernière actu : {actu.titre}\n{actu.lien}")
+    return "\n".join(lignes)
 
 
 def palier(baisse_pct: float, pas: int) -> int:

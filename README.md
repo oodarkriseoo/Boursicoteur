@@ -8,8 +8,9 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 
 | Commande | Rôle | Fréquence conseillée |
 |---|---|---|
-| `veille` | Alertes de risque : chute sur la séance, recul depuis le plus haut, perte par rapport à ton prix de revient, VIX élevé. Actus nouvelles sur tes valeurs. | Toutes les 30 min |
-| `resume` | Résumé du contexte, pistes IA du jour (dynamique, tendance, volume inhabituel, actus), introductions en bourse à venir et dossiers déposés à la SEC, hypothèses notées au journal. | Chaque matin |
+| `veille` | Alertes de chute : séance (puis à chaque palier de 3 points), chute rapide entre deux contrôles, passage sous ton seuil de sortie (`stop`), recul depuis le plus haut, perte par rapport à ton prix de revient, VIX élevé. Chaque alerte de chute rappelle ton écart au prix de revient, le plus bas des 20 dernières séances et la dernière actu. Actus nouvelles sur tes valeurs. | Toutes les 30 min |
+| `opportunites` | Score sur 100 pour chaque valeur de l'univers IA : catalyseur dans l'actu (partenariat, contrat, prise de participation, résultats relevés), dynamique, volume, accélération du jour. Claude affine la note du catalyseur. Au-dessus du seuil, alerte immédiate, notée au journal. | Toutes les 30 min |
+| `resume` | Résumé du contexte, valeurs IA les mieux notées sur 100, introductions en bourse à venir et dossiers déposés à la SEC, hypothèses notées au journal. | Chaque matin |
 | `bilan` | Évalue les hypothèses arrivées à échéance : taux de réussite, gain moyen, et comparaison avec l'ETF de référence. | Chaque mois |
 | `boucle` | Enchaîne tout automatiquement selon la section `planification` de la configuration. | En continu |
 
@@ -71,7 +72,7 @@ journalctl -u boursicoteur -f
 |---|---|
 | Serveur | 0 à 6 €/mois |
 | Cours (Yahoo Finance via yfinance), actus RSS, calendrier Nasdaq, SEC | 0 € |
-| Claude, un résumé par jour à effort faible | quelques €/mois |
+| Claude, un résumé par jour et la notation des catalyseurs frais | quelques € à une quinzaine d'€/mois |
 | Telegram ou ntfy | 0 € |
 
 ## Sources et limites

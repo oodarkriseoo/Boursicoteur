@@ -72,6 +72,8 @@ court et ce qui invaliderait l'hypothèse ;
 3. au plus 3 introductions en bourse ou dépôts de dossier liés à l'IA qui méritent d'être \
 suivis, avec leurs risques.
 
+Pour les hypothèses haussières, cherche en priorité des catalyseurs concrets dans les actus : partenariat, contrat de fabrication ou d'approvisionnement, prise de participation, résultats ou prévisions relevés, comme l'annonce d'Intel fabriquant des puces pour Nvidia. Un catalyseur confirmé par une hausse du cours et des volumes vaut plus qu'un simple mouvement technique.
+
 Sois sobre et honnête : une confiance de 4 ou 5 doit rester rare, et il vaut mieux ne \
 formuler aucune hypothèse que d'en inventer une sans appui dans les données. Rappelle-toi \
 que la plupart des valeurs qui montent très vite finissent par corriger fortement. \
@@ -100,8 +102,18 @@ def preparer_donnees(
     return "\n".join(lignes)
 
 
-def avec_claude(donnees: str, config_ia: dict[str, Any], client: Any = None) -> dict[str, Any] | None:
-    """Renvoie le JSON produit par Claude, ou None si indisponible."""
+def avec_claude(
+    donnees: str,
+    config_ia: dict[str, Any],
+    client: Any = None,
+    schema: dict[str, Any] = SCHEMA,
+    consignes: str = CONSIGNES,
+    modele: str | None = None,
+) -> dict[str, Any] | None:
+    """Renvoie le JSON produit par Claude, ou None si indisponible.
+
+    ``schema``, ``consignes`` et ``modele`` permettent de réutiliser l'appel
+    pour d'autres tâches (notation des catalyseurs par exemple)."""
     if not config_ia.get("activee", True):
         return None
     if client is None:
@@ -114,14 +126,14 @@ def avec_claude(donnees: str, config_ia: dict[str, Any], client: Any = None) -> 
 
     try:
         reponse = client.beta.messages.create(
-            model=config_ia.get("modele", "claude-opus-5-5"),
+            model=modele or config_ia.get("modele", "claude-opus-5-5"),
             max_tokens=16000,
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
-            system=CONSIGNES,
+            system=consignes,
             output_config={
                 "effort": config_ia.get("effort", "low"),
-                "format": {"type": "json_schema", "schema": SCHEMA},
+                "format": {"type": "json_schema", "schema": schema},
             },
             messages=[{"role": "user", "content": donnees}],
         )
