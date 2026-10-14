@@ -44,6 +44,18 @@ CREATE TABLE IF NOT EXISTS conseils (
     decide_le TEXT,
     quantite REAL
 );
+CREATE TABLE IF NOT EXISTS catalyseurs (
+    lien TEXT PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    categories TEXT NOT NULL,  -- ex. « contrat,partenariat » ou « négatif »
+    titre TEXT NOT NULL,
+    vu_le TEXT NOT NULL,
+    cours REAL NOT NULL,
+    reference REAL,
+    ecart_1j REAL,  -- variation du titre moins celle de la référence, en points
+    ecart_1s REAL,
+    ecart_4s REAL
+);
 CREATE TABLE IF NOT EXISTS hypotheses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     creee_le TEXT NOT NULL,
@@ -197,6 +209,54 @@ class Journal:
             "gain_net_eur": sum(gains),
             "suivis": len(suivis),
             "gain_net_suivis_eur": sum(suivis) if suivis else None,
+        }
+
+    # --- historique des news et de leur effet ---------------------------------
+    HORIZONS = {"ecart_1j": 1, "ecart_1s": 7, "ecart_4s": 28}  # en jours calendaires
+
+    def noter_catalyseur(self, lien: str, ticker: str, categories: list[str], titre: str,
+                         cours: float, reference: float | None, le: datetime | None = None) -> bool:
+        cur = self.db.execute(
+            """INSERT OR IGNORE INTO catalyseurs (lien, ticker, categories, titre, vu_le, cours, reference)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (lien, ticker, ",".join(categories), titre,
+             (le or datetime.now()).isoformat(timespec="seconds"), cours, reference),
+        )
+        self.db.commit()
+        return bool(cur.rowcount)
+
+    def mesurer_catalyseurs(self, cours: dict[str, float], reference: float | None,
+                            maintenant: datetime | None = None) -> int:
+        """Remplit l'effet à 1 jour, 1 semaine et 4 semaines des news arrivées à
+        échéance, avec les cours du moment. Renvoie le nombre de mesures faites."""
+        maintenant = maintenant or datetime.now()
+        faites = 0
+        for colonne, jours in self.HORIZONS.items():
+            lignes = self.db.execute(f"SELECT * FROM catalyseurs WHERE {colonne} IS NULL").fetchall()
+            for l in lignes:
+                if maintenant - datetime.fromisoformat(l["vu_le"]) < timedelta(days=jours):
+                    continue
+                actuel = cours.get(l["ticker"])
+                if actuel is None:
+                    continue
+                ecart = (actuel / l["cours"] - 1) * 100
+                if reference and l["reference"]:
+                    ecart -= (reference / l["reference"] - 1) * 100
+                self.db.execute(f"UPDATE catalyseurs SET {colonne} = ? WHERE lien = ?", (ecart, l["lien"]))
+                faites += 1
+        self.db.commit()
+        return faites
+
+    def effet_par_categorie(self, colonne: str = "ecart_1s") -> dict[str, dict[str, float]]:
+        """Pour chaque catégorie de news : nombre de cas mesurés, écart moyen à la
+        référence (en points) et part des cas où le titre a fait mieux qu'elle."""
+        effets: dict[str, list[float]] = {}
+        for l in self.db.execute(f"SELECT categories, {colonne} AS e FROM catalyseurs WHERE {colonne} IS NOT NULL"):
+            for categorie in filter(None, l["categories"].split(",")):
+                effets.setdefault(categorie, []).append(l["e"])
+        return {
+            c: {"cas": len(v), "moyenne": sum(v) / len(v), "positifs_pct": 100 * sum(e > 0 for e in v) / len(v)}
+            for c, v in effets.items()
         }
 
     # --- hypothèses --------------------------------------------------------
