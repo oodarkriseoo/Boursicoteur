@@ -21,16 +21,19 @@ class Notifieur:
         self.ntfy = os.environ.get(config.get("ntfy", {}).get("topic_env", ""), "")
 
     def envoyer(self, texte: str, titre: str = "Boursicoteur", urgent: bool = False,
-                boutons: list[tuple[str, str]] | None = None) -> None:
-        """``boutons`` : (libellé, donnée renvoyée au clic), affichés sous le message Telegram."""
+                boutons: list | None = None) -> None:
+        """``boutons`` : (libellé, donnée renvoyée au clic) affichés sous le message
+        Telegram, sur une ligne ; ou une liste de lignes de tels couples."""
         print(f"\n=== {titre} ===\n{texte}\n")
         if self.token and self.chat_id:
             morceaux = decouper(f"{titre}\n{texte}", LIMITE_TELEGRAM)
             for i, morceau in enumerate(morceaux):
                 corps = {"chat_id": self.chat_id, "text": morceau, "disable_web_page_preview": True}
                 if boutons and i == len(morceaux) - 1:
+                    lignes = [boutons] if isinstance(boutons[0], tuple) else boutons
                     corps["reply_markup"] = {"inline_keyboard": [
-                        [{"text": libelle, "callback_data": donnee} for libelle, donnee in boutons]
+                        [{"text": libelle, "callback_data": donnee} for libelle, donnee in ligne]
+                        for ligne in lignes
                     ]}
                 self._poster(self._api("sendMessage"), json=corps)
         if self.ntfy:
@@ -68,7 +71,7 @@ class Notifieur:
                 clics.append(clic)
         return clics, offset
 
-    def accuser_clic(self, clic: dict[str, Any], confirmation: str) -> None:
+    def accuser_clic(self, clic: dict[str, Any], confirmation: str, message: bool = True) -> None:
         """Retire les boutons du message et confirme ce qui a été noté."""
         self._poster(self._api("answerCallbackQuery"),
                      json={"callback_query_id": clic["id"], "text": confirmation})
@@ -78,7 +81,8 @@ class Notifieur:
                 "chat_id": self.chat_id, "message_id": message["message_id"],
                 "reply_markup": {"inline_keyboard": []},
             })
-        self._poster(self._api("sendMessage"), json={"chat_id": self.chat_id, "text": confirmation})
+        if message:
+            self._poster(self._api("sendMessage"), json={"chat_id": self.chat_id, "text": confirmation})
 
     def _api(self, methode: str) -> str:
         return f"https://api.telegram.org/bot{self.token}/{methode}"

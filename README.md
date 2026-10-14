@@ -70,6 +70,25 @@ sudo systemctl enable --now boursicoteur
 journalctl -u boursicoteur -f
 ```
 
+## Boutons Telegram et ordres via IBKR
+
+Chaque conseil d'achat arrive avec des boutons :
+- **✅ Déjà acheté** : tu as passé l'ordre toi-même (Trade Republic par exemple) ; les alertes de vente suivent cet achat.
+- **❌ Ignorer** : le conseil est suivi en silence, pour que le bilan compte aussi ce que tu écartes.
+- **🛒 Acheter via IBKR** (si le courtier est branché) : le bot affiche un récapitulatif, puis **✔️ Confirmer** envoie à Interactive Brokers un achat à cours limité avec le stop et l'objectif attachés. IBKR les exécute même si ton serveur est éteint.
+
+Seul ton chat Telegram peut déclencher un bouton. Un ordre est refusé s'il dépasse `plafond_ordre_eur`, si la journée dépasse `plafond_jour_eur`, si le conseil a plus de 24 h, ou si un compte réel est connecté alors que `compte_demo` est vrai.
+
+### Ordres via IBKR
+
+1. Ouvre un compte Interactive Brokers (compte-titres). Dans le portail client, active le **compte de démonstration** (Paper Trading) : il commence par « DU ».
+2. Sur le serveur, installe Java et **IB Gateway** (version « stable », Linux) depuis le site d'IBKR, puis **IBC** (github.com/IbcAlpha/IBC) pour qu'il redémarre seul. Connecte-le au compte démo ; il écoute alors sur le port 4002. Dans les réglages de l'API, coche « Enable ActiveX and Socket Clients » et ajoute 127.0.0.1 aux adresses de confiance.
+3. Installe le connecteur : `.venv/bin/pip install -e ".[ibkr]"`.
+4. Dans `config.yaml`, section `courtier`, mets `type: ibkr` et redémarre le service.
+5. Teste un mois en démo. Pour passer en réel : port 4001, `compte_demo: false`, plafonds prudents.
+
+IBKR impose une reconnexion avec la double authentification (appli IBKR Mobile) environ une fois par semaine : IBC te la demande, il suffit de valider sur ton téléphone.
+
 ## Budget de départ
 
 | Poste | Coût |

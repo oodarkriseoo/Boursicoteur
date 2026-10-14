@@ -106,6 +106,17 @@ conseils:
   frais_ordre_eur: 1          # Trade Republic : 1 € par ordre
   ratio_objectif: 2           # objectif à 2 fois la distance au stop
 
+# Courtier branché sur les boutons Telegram (voir README, « Ordres via IBKR »).
+# Un ordre ne part qu'après « Acheter via IBKR » puis « Confirmer ».
+courtier:
+  type: aucun                 # « ibkr » pour activer
+  hote: 127.0.0.1
+  port: 4002                  # IB Gateway : 4002 en démo, 4001 en réel
+  client_id: 17
+  compte_demo: true           # refuse tout compte réel tant que c'est vrai
+  plafond_ordre_eur: 300
+  plafond_jour_eur: 600
+
 # Introductions en bourse et dépôts de dossiers (S-1) aux États-Unis.
 introductions:
   nasdaq: true

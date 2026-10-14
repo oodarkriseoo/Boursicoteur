@@ -15,11 +15,12 @@ from __future__ import annotations
 import argparse
 import logging
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from . import config as cfg
 from . import conseils as cons
+from .courtier import Courtier, contrat_ibkr
 from . import hypotheses as hyp
 from . import opportunites as opp
 from . import risque as rsq
@@ -101,6 +102,14 @@ def suivre_conseils(journal: Journal, historiques) -> list[str]:
             if cours <= c["stop"] or cours >= c["objectif"]:
                 journal.clore_conseil(c["id"], "stop" if cours <= c["stop"] else "objectif", cours)
             continue
+        if c["decision"] == "ibkr" and (cours <= c["stop"] or cours >= c["objectif"]):
+            atteint = "stop" if cours <= c["stop"] else "objectif"
+            journal.clore_conseil(c["id"], atteint, cours)
+            messages.append(
+                f"{'🔴' if atteint == 'stop' else '💰'} {c['ticker']} a atteint son {atteint} ({cours:.2f}). "
+                f"L'ordre posé chez IBKR a dû s'exécuter (≈ {resultat:+.0f} €) : vérifie dans l'appli IBKR."
+            )
+            continue
         if cours <= c["stop"]:
             journal.clore_conseil(c["id"], "stop", cours)
             messages.append(
@@ -164,8 +173,11 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
         plan, id_conseil = conseil_achat(conf, journal, o.ticker, historiques, eurusd)
         if plan:
             texte += "\n\n" + plan
-        boutons = ([("✅ J'ai acheté", f"achete:{id_conseil}"), ("❌ Ignorer", f"ignore:{id_conseil}")]
-                   if id_conseil else None)
+        boutons = None
+        if id_conseil:
+            boutons = [[("✅ Déjà acheté", f"achete:{id_conseil}"), ("❌ Ignorer", f"ignore:{id_conseil}")]]
+            if Courtier(conf["courtier"]).actif and contrat_ibkr(o.ticker):
+                boutons.insert(0, [("🛒 Acheter via IBKR", f"commande:{id_conseil}")])
         notifieur.envoyer(texte, titre="Opportunité", urgent=True, boutons=boutons)
         # notée au journal : le bilan dira si les opportunités scorées tiennent leurs promesses
         journal.noter(
@@ -187,32 +199,61 @@ def conseil_achat(conf, journal: Journal, ticker, historiques, eurusd) -> tuple[
     taux = 1.0 if cons.devise_de(ticker) == "EUR" else eurusd
     if not taux:
         return None, None  # sans taux de change, le montant en euros serait faux
-    plan = cons.plan_achat(ticker, hist, reglages, taux)
+    # IBKR ne prend que des actions entières par l'API
+    plan = cons.plan_achat(ticker, hist, reglages, taux,
+                           fractionnable=not Courtier(conf["courtier"]).actif)
     if plan is None:
         return None, None
     id_conseil = journal.ouvrir_conseil(ticker, plan.cours, plan.stop, plan.objectif,
-                                        plan.montant_eur, 2 * reglages["frais_ordre_eur"])
+                                        plan.montant_eur, 2 * reglages["frais_ordre_eur"],
+                                        quantite=plan.quantite)
     if id_conseil is None:
         return f"(Un conseil d'achat sur {ticker} est déjà en cours : pas de nouvel achat.)", None
     return plan.formater(), id_conseil
 
 
-def traiter_clics(journal: Journal, notifieur: Notifieur, offset, attente: int):
-    """Enregistre « J'ai acheté » / « Ignorer ». Renvoie le nouvel offset Telegram."""
+def traiter_clics(journal: Journal, notifieur: Notifieur, offset, attente: int,
+                  courtier: Courtier | None = None):
+    """Traite les boutons : déjà acheté, ignorer, acheter via IBKR puis confirmer.
+    Renvoie le nouvel offset Telegram."""
     clics, offset = notifieur.clics(offset, attente)
     for clic in clics:
-        decision, _, id_texte = str(clic.get("data", "")).partition(":")
+        action, _, id_texte = str(clic.get("data", "")).partition(":")
         conseil = journal.conseil(int(id_texte)) if id_texte.isdigit() else None
-        if decision not in ("achete", "ignore") or conseil is None:
+        if conseil is None or action not in ("achete", "ignore", "commande", "confirme"):
             notifieur.accuser_clic(clic, "Bouton inconnu ou expiré.")
-            continue
-        journal.decider_conseil(conseil["id"], decision)
-        if decision == "achete":
-            confirmation = (f"✅ Achat {conseil['ticker']} noté. Je te préviens au stop "
-                            f"{conseil['stop']:.2f} ou à l'objectif {conseil['objectif']:.2f}.")
-        else:
-            confirmation = f"❌ {conseil['ticker']} ignoré. Je le suis quand même pour le bilan, sans t'alerter."
-        notifieur.accuser_clic(clic, confirmation)
+        elif conseil["decision"] in ("achete", "ibkr") or conseil["statut"] != "ouvert":
+            notifieur.accuser_clic(clic, f"Conseil {conseil['ticker']} déjà traité ou clos.")
+        elif action == "achete":
+            journal.decider_conseil(conseil["id"], "achete")
+            notifieur.accuser_clic(clic, f"✅ Achat {conseil['ticker']} noté. Je te préviens au stop "
+                                         f"{conseil['stop']:.2f} ou à l'objectif {conseil['objectif']:.2f}.")
+        elif action == "ignore":
+            journal.decider_conseil(conseil["id"], "ignore")
+            notifieur.accuser_clic(clic, f"❌ {conseil['ticker']} ignoré. Je le suis quand même pour le "
+                                         "bilan, sans t'alerter.")
+        elif courtier is None or not courtier.actif:
+            notifieur.accuser_clic(clic, "Aucun courtier branché : passe l'ordre à la main.")
+        elif datetime.now() - datetime.fromisoformat(conseil["cree_le"]) > timedelta(hours=24):
+            notifieur.accuser_clic(clic, "Conseil de plus de 24 h : les prix ont bougé, ordre refusé.")
+        elif action == "commande":
+            notifieur.accuser_clic(clic, "Vérifie le récapitulatif avant de confirmer.", message=False)
+            notifieur.envoyer(
+                f"Acheter {conseil['quantite']:g} {conseil['ticker']} via IBKR ?\n"
+                f"• Achat à cours limité, au plus {conseil['cours'] * 1.01:.2f}\n"
+                f"• Stop {conseil['stop']:.2f}, objectif {conseil['objectif']:.2f}, posés chez IBKR\n"
+                f"• Environ {conseil['montant_eur']:.0f} €",
+                titre="Confirmer l'ordre",
+                boutons=[("✔️ Confirmer", f"confirme:{conseil['id']}"), ("Annuler", f"ignore:{conseil['id']}")],
+            )
+        else:  # confirme
+            resultat = courtier.acheter(
+                conseil["ticker"], conseil["quantite"] or 0, conseil["cours"] * 1.01, conseil["objectif"],
+                conseil["stop"], conseil["montant_eur"], journal.engage_ibkr(),
+            )
+            if resultat.ok:
+                journal.decider_conseil(conseil["id"], "ibkr")
+            notifieur.accuser_clic(clic, resultat.message)
     return offset
 
 
@@ -378,7 +419,8 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
         while (reste := fin - time.monotonic()) > 0:
             if notifieur.token and notifieur.chat_id:
                 try:
-                    offset = traiter_clics(journal, notifieur, offset, int(min(50, max(1, reste))))
+                    offset = traiter_clics(journal, notifieur, offset, int(min(50, max(1, reste))),
+                                           Courtier(conf["courtier"]))
                 except Exception:
                     log.exception("Échec du traitement d'un clic.")
                     time.sleep(5)

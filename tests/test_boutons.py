@@ -15,7 +15,7 @@ class FauxNotifieur:
     def clics(self, offset, attente):
         return self._clics, 42
 
-    def accuser_clic(self, clic, confirmation):
+    def accuser_clic(self, clic, confirmation, message=True):
         self.accuses.append(confirmation)
 
 

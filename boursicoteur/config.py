@@ -31,6 +31,15 @@ DEFAUTS: dict[str, Any] = {
         "frais_ordre_eur": 1.0,
         "ratio_objectif": 2.0,
     },
+    "courtier": {
+        "type": "aucun",
+        "hote": "127.0.0.1",
+        "port": 4002,
+        "client_id": 17,
+        "compte_demo": True,
+        "plafond_ordre_eur": 300.0,
+        "plafond_jour_eur": 600.0,
+    },
     "introductions": {
         "nasdaq": True,
         "sec_s1": True,
