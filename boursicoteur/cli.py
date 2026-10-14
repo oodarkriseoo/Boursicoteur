@@ -22,6 +22,7 @@ from . import config as cfg
 from . import conseils as cons
 from .courtier import Courtier, contrat_ibkr
 from . import hypotheses as hyp
+from . import memoire
 from . import opportunites as opp
 from . import risque as rsq
 from . import signaux
@@ -156,16 +157,26 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
     actus = src_actus.collecter([], univers)
     # préfixe propre : le résumé du matin marque aussi les actus comme vues
     nouvelles = {l[4:] for l in journal.nouvelles_actus([f"opp:{a.lien}" for a in actus])}
-    scores = opp.scorer(univers, historiques, actus, nouvelles, conf["seuils"]["volume_inhabituel_x"])
+    scores = opp.scorer(univers, historiques, actus, nouvelles, conf["seuils"]["volume_inhabituel_x"],
+                        journal.effet_par_categorie())
+    reference = _dernier(historiques, conf["reference"])
+    # historique des news : chaque catalyseur frais est noté avec le cours du moment,
+    # son effet sera mesuré à 1 jour, 1 semaine et 4 semaines
+    for o in scores:
+        for a in o.titres:
+            if a.lien in nouvelles and o.dernier_cours is not None:
+                journal.noter_catalyseur(a.lien, o.ticker, [n for n, _ in opp.catalyseurs_de(a)],
+                                         a.titre, o.dernier_cours, reference)
 
     seuil = reglages["seuil_alerte"]
     # seules les valeurs proches du seuil avec une actu fraîche coûtent un appel à Claude
     candidates = [o for o in scores if o.nouveau and o.score >= seuil - 25][:8]
     if candidates:
-        opp.affiner_avec_claude(candidates, conf["ia"], reglages.get("modele"))
+        opp.affiner_avec_claude(candidates, conf["ia"], reglages.get("modele"),
+                                memoire=memoire.fiche(journal, [o.ticker for o in candidates],
+                                                      conf["secteurs"]))
     retenues = sorted((o for o in candidates if o.score >= seuil), key=lambda o: o.score, reverse=True)
 
-    reference = _dernier(historiques, conf["reference"])
     for o in retenues[: reglages["alertes_max"]]:
         if not journal.alerte_inedite(f"opportunite:{o.ticker}", f"score {o.score}"):
             continue
@@ -282,6 +293,7 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
         "date": date.today().isoformat(),
     }
     donnees = hyp.preparer_donnees(actus, pistes, intros, marche)
+    donnees += "\n\n" + memoire.fiche(journal, surcharges=conf["secteurs"])
     resultat = hyp.avec_claude(donnees, conf["ia"])
 
     if resultat:
@@ -297,8 +309,11 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     for h in hypotheses:
         journal.noter(h, _dernier(historiques, h.ticker), reference)
 
+    journal.mesurer_catalyseurs({t: c for t in historiques if (c := _dernier(historiques, t)) is not None},
+                                reference)
     classement = opp.scorer(theme["univers"], historiques, actus, set(),
-                            conf["seuils"]["volume_inhabituel_x"])[: theme["pistes_max"]]
+                            conf["seuils"]["volume_inhabituel_x"],
+                            journal.effet_par_categorie())[: theme["pistes_max"]]
     taux = {"USD": _dernier(src_cours.historiques(["EURUSD=X"], periode="5d"), "EURUSD=X")}
     avis = [cons.formater_avis(a, p.get("nom", a.ticker))
             for p, a in avis_portefeuille(conf, historiques, taux)]
@@ -394,6 +409,13 @@ def bilan(conf, journal: Journal, notifieur: Notifieur) -> None:
         )
         if c["suivis"]:
             texte += f"\nSur ceux que tu as achetés ({c['suivis']}) : {c['gain_net_suivis_eur']:+.0f} €"
+    effets = journal.effet_par_categorie()
+    if effets:
+        texte += "\n\nEffet des news sur 1 semaine, face au marché :"
+        for categorie, e in sorted(effets.items(), key=lambda x: -x[1]["moyenne"]):
+            texte += (f"\n• {categorie} : {e['moyenne']:+.1f} pts en moyenne, "
+                      f"{e['positifs_pct']:.0f} % de cas gagnants ({e['cas']} cas)")
+        texte += f"\nEn dessous de {opp.CAS_MINIMUM} cas, ces chiffres ne corrigent pas encore le score."
     notifieur.envoyer(texte, titre="Bilan des hypothèses")
 
 

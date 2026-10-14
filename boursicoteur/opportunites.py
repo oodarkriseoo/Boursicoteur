@@ -47,6 +47,18 @@ NEGATIF = (-25, ["downgrade", "cuts guidance", "lowers guidance", "cuts forecast
                  "recall", "share offering", "dilution", "abaisse", "enquête"])
 
 
+CAS_MINIMUM = 10  # en dessous, l'historique est trop maigre pour corriger quoi que ce soit
+
+
+def ajuster_poids(poids: int, effet: dict[str, float] | None) -> int:
+    """Corrige le poids d'une catégorie de news par son effet mesuré : +5 points
+    d'écart moyen à la référence sur une semaine multiplient le poids par 1,5,
+    -5 points le divisent par deux. Bornes : de 0,5 à 1,5 fois le poids de départ."""
+    if not effet or effet["cas"] < CAS_MINIMUM:
+        return poids
+    return round(poids * max(0.5, min(1.5, 1 + effet["moyenne"] / 10)))
+
+
 @dataclass
 class Opportunite:
     ticker: str
@@ -79,9 +91,12 @@ def scorer(
     actus: list[Actu],
     nouvelles: set[str],
     seuil_volume: float = 3.0,
+    historique: dict[str, dict[str, float]] | None = None,
 ) -> list[Opportunite]:
     """Score chaque valeur de l'univers ; renvoie la liste triée, meilleur d'abord.
-    ``nouvelles`` : liens d'actus jamais vus, pour savoir si le catalyseur est frais."""
+    ``nouvelles`` : liens d'actus jamais vus, pour savoir si le catalyseur est frais.
+    ``historique`` : effet mesuré par catégorie de news (voir ``ajuster_poids``)."""
+    historique = historique or {}
     resultats = []
     for ticker in univers:
         hist = historiques.get(ticker)
@@ -101,11 +116,17 @@ def scorer(
                 if poids < 0:
                     negatif = poids
                 else:
-                    positifs[nom] = max(positifs.get(nom, 0), poids)
+                    positifs[nom] = max(positifs.get(nom, 0), ajuster_poids(poids, historique.get(nom)))
         if positifs:
             # le meilleur catalyseur, plus un bonus si plusieurs types se cumulent
             opp.points["catalyseur"] = min(40, max(positifs.values()) + 5 * (len(positifs) - 1))
             opp.catalyseurs = sorted(positifs, key=positifs.get, reverse=True)
+            effet = historique.get(opp.catalyseurs[0])
+            if effet and effet["cas"] >= CAS_MINIMUM:
+                opp.signaux.append(
+                    f"par le passé, ce type de news a donné {effet['moyenne']:+.1f} pts sur 1 semaine "
+                    f"face au marché ({effet['cas']} cas)"
+                )
         if negatif:
             opp.points["actu négative"] = negatif
             opp.catalyseurs.append("négatif")
@@ -178,11 +199,13 @@ Pour chaque valeur, lis les titres fournis et note la force du catalyseur pour u
 favorable mais ordinaire, 0 pour du bruit (articles de commentaire, listes « actions à \
 acheter », rumeurs), négatif pour une mauvaise nouvelle. Juge l'impact sur cette valeur \
 précisément, pas sur son partenaire. Sois exigeant : la plupart des titres valent 0 à 15. \
-Réponds en français."""
+Si une section « Mémoire » est fournie, appuie-toi sur l'effet réellement mesuré des news \
+passées du même type et du même secteur. Réponds en français."""
 
 
 def affiner_avec_claude(
-    opportunites: list[Opportunite], config_ia: dict[str, Any], modele: str | None, client: Any = None
+    opportunites: list[Opportunite], config_ia: dict[str, Any], modele: str | None, client: Any = None,
+    memoire: str = "",
 ) -> bool:
     """Remplace la note « catalyseur » par mots-clés par celle de Claude.
     Renvoie False si Claude est indisponible (les notes par mots-clés restent)."""
@@ -193,6 +216,8 @@ def affiner_avec_claude(
     for o in a_noter:
         lignes.append(f"## {o.ticker} : {', '.join(o.signaux) or 'aucun signal technique'}")
         lignes += [f"- {a.titre} — {a.resume[:200]}" for a in o.titres[:6]]
+    if memoire:
+        lignes += ["", memoire]
     resultat = hyp.avec_claude("\n".join(lignes), config_ia, client,
                                schema=SCHEMA_IA, consignes=CONSIGNES_IA, modele=modele)
     if not resultat:

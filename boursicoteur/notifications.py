@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import os
+import re
 from typing import Any
 
 import requests
@@ -11,6 +13,15 @@ import requests
 log = logging.getLogger(__name__)
 
 LIMITE_TELEGRAM = 4000  # Telegram refuse au-delà de 4096 caractères
+
+# Tickers avec suffixe de place (SAN.PA, ASML.AS, NOV.DE) : sans précaution,
+# Telegram les prend pour des adresses web (.pa, .as et .de sont des domaines).
+TICKER_A_SUFFIXE = re.compile(r"(?<![\w/.])([A-Z0-9]{1,8}\.[A-Z]{1,2})(?![\w.])")
+
+
+def pour_telegram(texte: str) -> str:
+    """Texte au format HTML de Telegram, tickers à suffixe affichés en code (non cliquables)."""
+    return TICKER_A_SUFFIXE.sub(r"<code>\1</code>", html.escape(texte, quote=False))
 
 
 class Notifieur:
@@ -28,7 +39,8 @@ class Notifieur:
         if self.token and self.chat_id:
             morceaux = decouper(f"{titre}\n{texte}", LIMITE_TELEGRAM)
             for i, morceau in enumerate(morceaux):
-                corps = {"chat_id": self.chat_id, "text": morceau, "disable_web_page_preview": True}
+                corps = {"chat_id": self.chat_id, "text": pour_telegram(morceau), "parse_mode": "HTML",
+                         "disable_web_page_preview": True}
                 if boutons and i == len(morceaux) - 1:
                     lignes = [boutons] if isinstance(boutons[0], tuple) else boutons
                     corps["reply_markup"] = {"inline_keyboard": [
@@ -82,7 +94,8 @@ class Notifieur:
                 "reply_markup": {"inline_keyboard": []},
             })
         if message:
-            self._poster(self._api("sendMessage"), json={"chat_id": self.chat_id, "text": confirmation})
+            self._poster(self._api("sendMessage"), json={
+                "chat_id": self.chat_id, "text": pour_telegram(confirmation), "parse_mode": "HTML"})
 
     def _api(self, methode: str) -> str:
         return f"https://api.telegram.org/bot{self.token}/{methode}"
