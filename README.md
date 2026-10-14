@@ -16,6 +16,8 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 
 **Conseils chiffrés (phase 2).** Chaque opportunité retenue arrive avec un plan d'achat : ordre à cours limité, quantité, stop, objectif, et un montant calculé pour que la perte au stop reste vers 2 % de la poche dédiée (section `conseils`). La veille suit chaque conseil et t'écrit « vends » quand le stop ou l'objectif est atteint. Sur tes positions, un stop suiveur et la tendance donnent un avis : garder, alléger, prendre des gains ou vendre. Un stop ne protège pas d'une ouverture en forte baisse : la perte réelle peut alors dépasser celle prévue. Le bilan mensuel donne le résultat net des conseils, frais compris.
 
+**Baisses inhabituelles.** Chaque valeur est jugée selon sa propre respiration : le repli en cours est comparé à tous ses replis des deux dernières années, la chute du jour à sa variation normale (en écarts-types). S'y ajoutent la cassure de la série de creux montants, le passage sous la moyenne 200 jours et l'emballement de la volatilité. Le tout donne un risque sur 100 ; au-dessus de 50, une alerte situe la baisse par rapport à tes gains déjà faits. Une baisse ordinaire pour une valeur nerveuse n'alerte plus. Ces signaux disent quand une baisse sort de l'ordinaire, ils ne prédisent pas l'avenir.
+
 Les hypothèses sont rédigées par Claude (API Anthropic) si une clé est fournie. Sans clé, des règles simples prennent le relais.
 
 ## Installation
@@ -67,6 +69,25 @@ WantedBy=multi-user.target
 sudo systemctl enable --now boursicoteur
 journalctl -u boursicoteur -f
 ```
+
+## Boutons Telegram et ordres via IBKR
+
+Chaque conseil d'achat arrive avec des boutons :
+- **✅ Déjà acheté** : tu as passé l'ordre toi-même (Trade Republic par exemple) ; les alertes de vente suivent cet achat.
+- **❌ Ignorer** : le conseil est suivi en silence, pour que le bilan compte aussi ce que tu écartes.
+- **🛒 Acheter via IBKR** (si le courtier est branché) : le bot affiche un récapitulatif, puis **✔️ Confirmer** envoie à Interactive Brokers un achat à cours limité avec le stop et l'objectif attachés. IBKR les exécute même si ton serveur est éteint.
+
+Seul ton chat Telegram peut déclencher un bouton. Un ordre est refusé s'il dépasse `plafond_ordre_eur`, si la journée dépasse `plafond_jour_eur`, si le conseil a plus de 24 h, ou si un compte réel est connecté alors que `compte_demo` est vrai.
+
+### Ordres via IBKR
+
+1. Ouvre un compte Interactive Brokers (compte-titres). Dans le portail client, active le **compte de démonstration** (Paper Trading) : il commence par « DU ».
+2. Sur le serveur, installe Java et **IB Gateway** (version « stable », Linux) depuis le site d'IBKR, puis **IBC** (github.com/IbcAlpha/IBC) pour qu'il redémarre seul. Connecte-le au compte démo ; il écoute alors sur le port 4002. Dans les réglages de l'API, coche « Enable ActiveX and Socket Clients » et ajoute 127.0.0.1 aux adresses de confiance.
+3. Installe le connecteur : `.venv/bin/pip install -e ".[ibkr]"`.
+4. Dans `config.yaml`, section `courtier`, mets `type: ibkr` et redémarre le service.
+5. Teste un mois en démo. Pour passer en réel : port 4001, `compte_demo: false`, plafonds prudents.
+
+IBKR impose une reconnexion avec la double authentification (appli IBKR Mobile) environ une fois par semaine : IBC te la demande, il suffit de valider sur ton téléphone.
 
 ## Budget de départ
 

@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS conseils (
     frais_eur REAL NOT NULL,
     statut TEXT NOT NULL DEFAULT 'ouvert',
     clos_le TEXT,
-    cours_final REAL
+    cours_final REAL,
+    decision TEXT,  -- achete, ignore ou ibkr (ordre passé par le bot), sinon inconnue
+    decide_le TEXT,
+    quantite REAL
 );
 CREATE TABLE IF NOT EXISTS hypotheses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,6 +83,12 @@ class Journal:
         self.db = sqlite3.connect(str(chemin))
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        # bases créées avant les boutons Telegram
+        colonnes = {l["name"] for l in self.db.execute("PRAGMA table_info(conseils)")}
+        for colonne, type_ in (("decision", "TEXT"), ("decide_le", "TEXT"), ("quantite", "REAL")):
+            if colonne not in colonnes:
+                self.db.execute(f"ALTER TABLE conseils ADD COLUMN {colonne} {type_}")
+        self.db.commit()
 
     # --- actus -------------------------------------------------------------
     def nouvelles_actus(self, liens: list[str]) -> set[str]:
@@ -130,16 +139,17 @@ class Journal:
 
     # --- conseils d'achat (phase 2) -------------------------------------------
     def ouvrir_conseil(self, ticker: str, cours: float, stop: float, objectif: float,
-                       montant_eur: float, frais_eur: float, le: datetime | None = None) -> int | None:
+                       montant_eur: float, frais_eur: float, le: datetime | None = None,
+                       quantite: float | None = None) -> int | None:
         """Note un conseil d'achat ; None s'il y en a déjà un en cours sur ce ticker."""
         if self.db.execute("SELECT 1 FROM conseils WHERE ticker = ? AND statut = 'ouvert'",
                            (ticker,)).fetchone():
             return None
         cur = self.db.execute(
-            """INSERT INTO conseils (cree_le, ticker, cours, stop, objectif, montant_eur, frais_eur)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO conseils (cree_le, ticker, cours, stop, objectif, montant_eur, frais_eur,
+                   quantite) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             ((le or datetime.now()).isoformat(timespec="seconds"), ticker, cours, stop, objectif,
-             montant_eur, frais_eur),
+             montant_eur, frais_eur, quantite),
         )
         self.db.commit()
         return int(cur.lastrowid)
@@ -154,18 +164,39 @@ class Journal:
         )
         self.db.commit()
 
+    def conseil(self, id_: int) -> sqlite3.Row | None:
+        return self.db.execute("SELECT * FROM conseils WHERE id = ?", (id_,)).fetchone()
+
+    def decider_conseil(self, id_: int, decision: str, le: date | None = None) -> bool:
+        cur = self.db.execute("UPDATE conseils SET decision = ?, decide_le = ? WHERE id = ?",
+                              (decision, (le or date.today()).isoformat(), id_))
+        self.db.commit()
+        return bool(cur.rowcount)
+
+    def engage_ibkr(self, jour: date | None = None) -> float:
+        """Montant (en euros) des ordres passés par le bot ce jour-là, pour le plafond quotidien."""
+        ligne = self.db.execute(
+            "SELECT COALESCE(SUM(montant_eur), 0) FROM conseils WHERE decision = 'ibkr' AND decide_le = ?",
+            ((jour or date.today()).isoformat(),),
+        ).fetchone()
+        return float(ligne[0])
+
     def bilan_conseils(self) -> dict[str, float | int | None]:
         """Résultat des conseils clos, comme si chacun avait été suivi à la lettre."""
         ouverts = len(self.conseils_ouverts())
         lignes = self.db.execute("SELECT * FROM conseils WHERE statut != 'ouvert'").fetchall()
         if not lignes:
-            return {"clos": 0, "ouverts": ouverts, "gagnants_pct": None, "gain_net_eur": None}
+            return {"clos": 0, "ouverts": ouverts, "gagnants_pct": None, "gain_net_eur": None,
+                    "suivis": 0, "gain_net_suivis_eur": None}
         gains = [l["montant_eur"] * (l["cours_final"] / l["cours"] - 1) - l["frais_eur"] for l in lignes]
+        suivis = [g for g, l in zip(gains, lignes) if l["decision"] in ("achete", "ibkr")]
         return {
             "clos": len(lignes),
             "ouverts": ouverts,
             "gagnants_pct": 100 * sum(g > 0 for g in gains) / len(gains),
             "gain_net_eur": sum(gains),
+            "suivis": len(suivis),
+            "gain_net_suivis_eur": sum(suivis) if suivis else None,
         }
 
     # --- hypothèses --------------------------------------------------------

@@ -27,6 +27,9 @@ reference: CW8.PA
 seuils:
   baisse_seance_pct: 5        # alerte si une position perd plus de 5 % sur la séance (puis à chaque 3 points de plus)
   chute_rapide_pct: 3         # alerte si une position perd 3 % entre deux contrôles (30 min)
+  risque_alerte: 50           # alerte « baisse inhabituelle » si le risque dépasse 50/100
+  # Les seuils de baisse ci-dessus s'adaptent à chaque valeur : une baisse dans
+  # sa respiration habituelle (replis passés, variation normale) n'alerte pas.
   baisse_depuis_sommet_pct: 15  # alerte si une position est à -15 % de son plus haut sur 3 mois
   perte_vs_prix_revient_pct: 20 # alerte si une position est à -20 % de ton prix de revient
   vix_alerte: 30              # alerte si l'indice de peur (VIX) dépasse 30
@@ -102,6 +105,17 @@ conseils:
   position_max_pct: 25        # jamais plus de 25 % de la poche sur une seule valeur
   frais_ordre_eur: 1          # Trade Republic : 1 € par ordre
   ratio_objectif: 2           # objectif à 2 fois la distance au stop
+
+# Courtier branché sur les boutons Telegram (voir README, « Ordres via IBKR »).
+# Un ordre ne part qu'après « Acheter via IBKR » puis « Confirmer ».
+courtier:
+  type: aucun                 # « ibkr » pour activer
+  hote: 127.0.0.1
+  port: 4002                  # IB Gateway : 4002 en démo, 4001 en réel
+  client_id: 17
+  compte_demo: true           # refuse tout compte réel tant que c'est vrai
+  plafond_ordre_eur: 300
+  plafond_jour_eur: 600
 
 # Introductions en bourse et dépôts de dossiers (S-1) aux États-Unis.
 introductions:

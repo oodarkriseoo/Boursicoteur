@@ -14,6 +14,7 @@ DEFAUTS: dict[str, Any] = {
     "seuils": {
         "baisse_seance_pct": 5.0,
         "chute_rapide_pct": 3.0,
+        "risque_alerte": 50,
         "baisse_depuis_sommet_pct": 15.0,
         "perte_vs_prix_revient_pct": 20.0,
         "vix_alerte": 30.0,
@@ -29,6 +30,15 @@ DEFAUTS: dict[str, Any] = {
         "position_max_pct": 25.0,
         "frais_ordre_eur": 1.0,
         "ratio_objectif": 2.0,
+    },
+    "courtier": {
+        "type": "aucun",
+        "hote": "127.0.0.1",
+        "port": 4002,
+        "client_id": 17,
+        "compte_demo": True,
+        "plafond_ordre_eur": 300.0,
+        "plafond_jour_eur": 600.0,
     },
     "introductions": {
         "nasdaq": True,
