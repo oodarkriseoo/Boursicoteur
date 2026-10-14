@@ -1,7 +1,7 @@
 """Point d'entrée : ``python -m boursicoteur <commande>``.
 
 Commandes :
-  veille  contrôle rapide (alertes de chute, actus nouvelles sur ton portefeuille)
+  veille  contrôle rapide (alertes de chute, conseils sur tes positions)
   opportunites  repère les valeurs IA portées par un catalyseur frais, score sur 100
   resume  résumé quotidien : contexte, pistes IA, introductions, hypothèses
   bilan   évalue les hypothèses arrivées à échéance et compare à la référence
@@ -81,13 +81,6 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
         texte = cons.formater_avis(avis, position.get("nom", avis.ticker))
         if journal.alerte_inedite(cle, texte, date.min):
             notifieur.envoyer(texte, titre="Conseil sur ta position", urgent=avis.action == "vendre")
-
-    # Actus nouvelles sur les valeurs que tu détiens
-    nouvelles = journal.nouvelles_actus([a.lien for a in actus])
-    a_signaler = [a for a in actus if a.lien in nouvelles]
-    if a_signaler:
-        texte = "\n".join(f"• [{a.ticker}] {a.titre}\n  {a.lien}" for a in a_signaler[:10])
-        notifieur.envoyer(texte, titre="Actus sur ton portefeuille")
 
 
 def suivre_conseils(journal: Journal, historiques) -> list[str]:
@@ -223,13 +216,34 @@ def conseil_achat(conf, journal: Journal, ticker, historiques, eurusd) -> tuple[
     return plan.formater(), id_conseil
 
 
+BOUTON_ACTUS = ("📰 En savoir plus : actus de mes positions", "actus:portefeuille")
+
+
+def actus_portefeuille(portefeuille, collecter=src_actus.collecter, par_valeur: int = 3) -> str:
+    """Dernières actus de chaque position, avec leurs liens. Récoltées au clic
+    seulement : aucun appel à l'IA, et rien n'encombre le fil le reste du temps."""
+    actus = collecter([], [p["ticker"] for p in portefeuille])
+    blocs = []
+    for p in portefeuille:
+        siennes = [a for a in actus if a.ticker == p["ticker"]][:par_valeur]
+        if siennes:
+            blocs.append(f"{p.get('nom', p['ticker'])} ({p['ticker']})\n"
+                         + "\n".join(f"• {a.titre}\n  {a.lien}" for a in siennes))
+    return "\n\n".join(blocs) or "Aucune actu récente sur tes positions."
+
+
 def traiter_clics(journal: Journal, notifieur: Notifieur, offset, attente: int,
-                  courtier: Courtier | None = None):
-    """Traite les boutons : déjà acheté, ignorer, acheter via IBKR puis confirmer.
-    Renvoie le nouvel offset Telegram."""
+                  courtier: Courtier | None = None, portefeuille=(), collecter=src_actus.collecter):
+    """Traite les boutons : actus des positions, déjà acheté, ignorer, acheter
+    via IBKR puis confirmer. Renvoie le nouvel offset Telegram."""
     clics, offset = notifieur.clics(offset, attente)
     for clic in clics:
         action, _, id_texte = str(clic.get("data", "")).partition(":")
+        if action == "actus":
+            # le bouton reste sous le résumé : chaque clic récolte des actus fraîches
+            notifieur.accuser_clic(clic, "Je rassemble les actus…", message=False, retirer=False)
+            notifieur.envoyer(actus_portefeuille(portefeuille, collecter), titre="Actus de tes positions")
+            continue
         conseil = journal.conseil(int(id_texte)) if id_texte.isdigit() else None
         if conseil is None or action not in ("achete", "ignore", "commande", "confirme"):
             notifieur.accuser_clic(clic, "Bouton inconnu ou expiré.")
@@ -321,6 +335,7 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     notifieur.envoyer(
         formater_resume(contexte, classement, hypotheses, intros_a_suivre, avis),
         titre=f"Résumé du {date.today():%d/%m/%Y}",
+        boutons=[BOUTON_ACTUS] if conf["portefeuille"] else None,
     )
 
 
@@ -442,7 +457,7 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
             if notifieur.token and notifieur.chat_id:
                 try:
                     offset = traiter_clics(journal, notifieur, offset, int(min(50, max(1, reste))),
-                                           Courtier(conf["courtier"]))
+                                           Courtier(conf["courtier"]), conf["portefeuille"])
                 except Exception:
                     log.exception("Échec du traitement d'un clic.")
                     time.sleep(5)
