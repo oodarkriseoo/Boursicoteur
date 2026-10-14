@@ -26,6 +26,7 @@ import pandas as pd
 
 from . import hypotheses as hyp
 from . import indicateurs as ind
+from .conseils import enveloppe_de
 from .sources.actus import Actu
 
 log = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class Opportunite:
     dernier_cours: float | None = None
     lecture_ia: str = ""
     risques: str = ""
+    theme: str = ""  # libellé du thème suivi (IA, Santé…)
 
     @property
     def score(self) -> int:
@@ -190,7 +192,8 @@ SCHEMA_IA = {
 }
 
 CONSIGNES_IA = """Tu évalues des catalyseurs boursiers pour un particulier français qui \
-cherche, sur le thème de l'intelligence artificielle, des situations comme Nvidia ou Intel : \
+cherche, dans les secteurs qu'il suit (intelligence artificielle, santé, électrification, \
+matériaux, défense, banques…), des situations comme Nvidia ou Intel : \
 une nouvelle concrète (partenariat, contrat de fabrication, prise de participation, \
 résultats et prévisions relevés) qui peut entraîner une hausse durable du cours.
 
@@ -235,7 +238,8 @@ def affiner_avec_claude(
 
 
 def formater(o: Opportunite) -> str:
-    lignes = [f"💎 {o.ticker} : score {o.score}/100"]
+    etiquettes = " · ".join(filter(None, (o.theme, enveloppe_de(o.ticker))))
+    lignes = [f"💎 {o.ticker} ({etiquettes}) : score {o.score}/100"]
     if o.titres:
         a = o.titres[0]
         lignes.append(f"Catalyseur ({', '.join(o.catalyseurs)}) : {a.titre}")

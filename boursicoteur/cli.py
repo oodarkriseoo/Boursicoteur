@@ -2,8 +2,8 @@
 
 Commandes :
   veille  contrôle rapide (alertes de chute, conseils sur tes positions)
-  opportunites  repère les valeurs IA portées par un catalyseur frais, score sur 100
-  resume  résumé quotidien : contexte, pistes IA, introductions, hypothèses
+  opportunites  repère les valeurs de chaque thème portées par un catalyseur frais, score sur 100
+  resume  résumé quotidien : contexte, pistes par thème, introductions, hypothèses
   bilan   évalue les hypothèses arrivées à échéance et compare à la référence
   boucle  tourne en continu : veille toutes les N minutes, résumé et bilan aux heures prévues
 
@@ -139,12 +139,12 @@ def avis_portefeuille(conf, historiques, taux):
 
 
 def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
-    """Alerte immédiate quand une valeur de l'univers IA reçoit un catalyseur
+    """Alerte immédiate quand une valeur d'un thème suivi reçoit un catalyseur
     frais et que le marché confirme (score au-dessus du seuil)."""
     reglages = conf["opportunites"]
     if not reglages["activee"]:
         return
-    univers = conf["theme_ia"]["univers"]
+    univers = cfg.univers_complet(conf)
     historiques = src_cours.historiques(univers + [conf["reference"], "EURUSD=X"], periode="6mo")
     eurusd = _dernier(historiques, "EURUSD=X")
     actus = src_actus.collecter([], univers)
@@ -152,6 +152,9 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
     nouvelles = {l[4:] for l in journal.nouvelles_actus([f"opp:{a.lien}" for a in actus])}
     scores = opp.scorer(univers, historiques, actus, nouvelles, conf["seuils"]["volume_inhabituel_x"],
                         journal.effet_par_categorie())
+    themes = cfg.theme_de(conf)
+    for o in scores:
+        o.theme = themes.get(o.ticker, "")
     reference = _dernier(historiques, conf["reference"])
     # historique des news : chaque catalyseur frais est noté avec le cours du moment,
     # son effet sera mesuré à 1 jour, 1 semaine et 4 semaines
@@ -167,7 +170,7 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
     if candidates:
         opp.affiner_avec_claude(candidates, conf["ia"], reglages.get("modele"),
                                 memoire=memoire.fiche(journal, [o.ticker for o in candidates],
-                                                      conf["secteurs"]))
+                                                      secteurs(conf)))
     retenues = sorted((o for o in candidates if o.score >= seuil), key=lambda o: o.score, reverse=True)
 
     for o in retenues[: reglages["alertes_max"]]:
@@ -288,11 +291,11 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     actus = src_actus.collecter(conf["flux_rss"], tickers)
     journal.nouvelles_actus([a.lien for a in actus])
 
-    theme = conf["theme_ia"]
-    pistes = signaux.scanner_theme_ia(
+    themes = cfg.themes(conf)
+    pistes = [p for theme in themes.values() for p in signaux.scanner_theme_ia(
         theme["univers"], historiques, actus, theme["mots_cles"],
         conf["seuils"]["volume_inhabituel_x"], theme["pistes_max"],
-    )
+    )]
 
     intros = []
     if conf["introductions"]["nasdaq"]:
@@ -307,7 +310,7 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
         "date": date.today().isoformat(),
     }
     donnees = hyp.preparer_donnees(actus, pistes, intros, marche)
-    donnees += "\n\n" + memoire.fiche(journal, surcharges=conf["secteurs"])
+    donnees += "\n\n" + memoire.fiche(journal, surcharges=secteurs(conf))
     resultat = hyp.avec_claude(donnees, conf["ia"])
 
     if resultat:
@@ -325,9 +328,10 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
 
     journal.mesurer_catalyseurs({t: c for t in historiques if (c := _dernier(historiques, t)) is not None},
                                 reference)
-    classement = opp.scorer(theme["univers"], historiques, actus, set(),
-                            conf["seuils"]["volume_inhabituel_x"],
-                            journal.effet_par_categorie())[: theme["pistes_max"]]
+    effets = journal.effet_par_categorie()
+    classement = {theme["libelle"]: opp.scorer(theme["univers"], historiques, actus, set(),
+                                               conf["seuils"]["volume_inhabituel_x"], effets)[: theme["pistes_max"]]
+                  for theme in themes.values() if theme["univers"]}
     taux = {"USD": _dernier(src_cours.historiques(["EURUSD=X"], periode="5d"), "EURUSD=X")}
     avis = [cons.formater_avis(a, p.get("nom", a.ticker))
             for p, a in avis_portefeuille(conf, historiques, taux)]
@@ -354,17 +358,29 @@ def thermometre(conf, historiques) -> list[str]:
     return lignes
 
 
-def formater_resume(contexte, classement, hypotheses, intros_a_suivre, avis=()) -> str:
+def secteurs(conf) -> dict[str, str]:
+    """Secteur de chaque valeur pour la mémoire : la configuration d'abord, puis
+    le tableau de memoire.py, puis le thème qui la suit."""
+    par_theme = {t: lib for t, lib in cfg.theme_de(conf).items() if t not in memoire.SECTEURS}
+    return {**par_theme, **conf["secteurs"]}
+
+
+def formater_resume(contexte, classement: dict[str, list], hypotheses, intros_a_suivre, avis=()) -> str:
     parties = ["🌍 Contexte", contexte or "—", ""]
     if avis:
         parties.append("📋 Conseils sur tes positions")
         parties += list(avis)
         parties.append("")
-    parties.append("💎 Valeurs IA les mieux notées (score sur 100)")
-    if classement:
-        for o in classement:
-            motifs = ([f"catalyseur {', '.join(o.catalyseurs)}"] if o.catalyseurs else []) + o.signaux
-            parties.append(f"• {o.ticker} {o.score}/100 : {', '.join(motifs) or 'pas de signal fort'}")
+    parties.append("💎 Valeurs les mieux notées par thème (score sur 100)")
+    if any(classement.values()):
+        for libelle, valeurs in classement.items():
+            if not valeurs:
+                continue
+            parties.append(libelle)
+            for o in valeurs:
+                motifs = ([f"catalyseur {', '.join(o.catalyseurs)}"] if o.catalyseurs else []) + o.signaux
+                pea = " (PEA possible)" if cons.enveloppe_de(o.ticker) == "PEA possible" else ""
+                parties.append(f"• {o.ticker}{pea} {o.score}/100 : {', '.join(motifs) or 'pas de signal fort'}")
     else:
         parties.append("• Aucune donnée de cours disponible.")
     parties.append("")
