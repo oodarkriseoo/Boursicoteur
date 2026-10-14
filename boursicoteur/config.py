@@ -14,6 +14,7 @@ DEFAUTS: dict[str, Any] = {
     "seuils": {
         "baisse_seance_pct": 5.0,
         "chute_rapide_pct": 3.0,
+        "risque_alerte": 50,
         "baisse_depuis_sommet_pct": 15.0,
         "perte_vs_prix_revient_pct": 20.0,
         "vix_alerte": 30.0,

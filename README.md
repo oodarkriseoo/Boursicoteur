@@ -16,6 +16,8 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 
 **Conseils chiffrés (phase 2).** Chaque opportunité retenue arrive avec un plan d'achat : ordre à cours limité, quantité, stop, objectif, et un montant calculé pour que la perte au stop reste vers 2 % de la poche dédiée (section `conseils`). La veille suit chaque conseil et t'écrit « vends » quand le stop ou l'objectif est atteint. Sur tes positions, un stop suiveur et la tendance donnent un avis : garder, alléger, prendre des gains ou vendre. Un stop ne protège pas d'une ouverture en forte baisse : la perte réelle peut alors dépasser celle prévue. Le bilan mensuel donne le résultat net des conseils, frais compris.
 
+**Baisses inhabituelles.** Chaque valeur est jugée selon sa propre respiration : le repli en cours est comparé à tous ses replis des deux dernières années, la chute du jour à sa variation normale (en écarts-types). S'y ajoutent la cassure de la série de creux montants, le passage sous la moyenne 200 jours et l'emballement de la volatilité. Le tout donne un risque sur 100 ; au-dessus de 50, une alerte situe la baisse par rapport à tes gains déjà faits. Une baisse ordinaire pour une valeur nerveuse n'alerte plus. Ces signaux disent quand une baisse sort de l'ordinaire, ils ne prédisent pas l'avenir.
+
 Les hypothèses sont rédigées par Claude (API Anthropic) si une clé est fournie. Sans clé, des règles simples prennent le relais.
 
 ## Installation

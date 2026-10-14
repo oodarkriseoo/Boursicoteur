@@ -22,6 +22,7 @@ from . import config as cfg
 from . import conseils as cons
 from . import hypotheses as hyp
 from . import opportunites as opp
+from . import risque as rsq
 from . import signaux
 from .journal import Hypothese, Journal
 from .notifications import Notifieur
@@ -47,7 +48,7 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
     paires = {d: f"EUR{d}=X" for d in devises}
     suivis = [c["ticker"] for c in journal.conseils_ouverts()]
     historiques = src_cours.historiques(
-        list(dict.fromkeys(portefeuille + suivis)) + [VIX] + list(paires.values()), periode="6mo")
+        list(dict.fromkeys(portefeuille + suivis)) + [VIX] + list(paires.values()), periode="2y")
     taux = {d: _dernier(historiques, paire) for d, paire in paires.items()}
 
     # Actus d'abord : la dernière sur chaque valeur accompagne les alertes de chute
@@ -189,7 +190,7 @@ def conseil_achat(conf, journal: Journal, ticker, historiques, eurusd) -> str | 
 
 def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     tickers = cfg.tickers_suivis(conf)
-    historiques = src_cours.historiques(tickers + [VIX], periode="6mo")
+    historiques = src_cours.historiques(tickers + [VIX], periode="2y")
     actus = src_actus.collecter(conf["flux_rss"], tickers)
     journal.nouvelles_actus([a.lien for a in actus])
 
@@ -232,10 +233,26 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     taux = {"USD": _dernier(src_cours.historiques(["EURUSD=X"], periode="5d"), "EURUSD=X")}
     avis = [cons.formater_avis(a, p.get("nom", a.ticker))
             for p, a in avis_portefeuille(conf, historiques, taux)]
+    avis += thermometre(conf, historiques)
     notifieur.envoyer(
         formater_resume(contexte, classement, hypotheses, intros_a_suivre, avis),
         titre=f"Résumé du {date.today():%d/%m/%Y}",
     )
+
+
+def thermometre(conf, historiques) -> list[str]:
+    """Risque de baisse inhabituelle (sur 100) du marché et de chaque position."""
+    lignes = []
+    noms = [(conf["reference"], f"Marché ({conf['reference']})")]
+    noms += [(p["ticker"], p.get("nom", p["ticker"])) for p in conf["portefeuille"]]
+    for ticker, nom in dict(noms).items():
+        hist = historiques.get(ticker)
+        r = rsq.evaluer(ticker, hist) if hist is not None else None
+        if r is None:
+            continue
+        motif = r.raisons[0] if r.raisons else "baisse dans la norme de la valeur"
+        lignes.append(f"🌡️ {nom} : risque {r.score}/100, {motif}")
+    return lignes
 
 
 def formater_resume(contexte, classement, hypotheses, intros_a_suivre, avis=()) -> str:

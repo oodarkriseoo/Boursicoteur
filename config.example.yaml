@@ -27,6 +27,9 @@ reference: CW8.PA
 seuils:
   baisse_seance_pct: 5        # alerte si une position perd plus de 5 % sur la séance (puis à chaque 3 points de plus)
   chute_rapide_pct: 3         # alerte si une position perd 3 % entre deux contrôles (30 min)
+  risque_alerte: 50           # alerte « baisse inhabituelle » si le risque dépasse 50/100
+  # Les seuils de baisse ci-dessus s'adaptent à chaque valeur : une baisse dans
+  # sa respiration habituelle (replis passés, variation normale) n'alerte pas.
   baisse_depuis_sommet_pct: 15  # alerte si une position est à -15 % de son plus haut sur 3 mois
   perte_vs_prix_revient_pct: 20 # alerte si une position est à -20 % de ton prix de revient
   vix_alerte: 30              # alerte si l'indice de peur (VIX) dépasse 30

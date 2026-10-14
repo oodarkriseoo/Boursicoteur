@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from . import indicateurs as ind
+from . import risque as rsq
 from .sources.actus import Actu, mentionne
 
 
@@ -65,9 +66,14 @@ def alertes_portefeuille(
             taux = taux_change.get(devise)
             prix_revient = prix_revient * taux if taux else None
         details = _details_chute(hist, dernier, prix_revient, titres.get(ticker))
+        # baisse jugée à l'aune de la respiration habituelle de la valeur
+        risque = rsq.evaluer(ticker, hist)
+        sigma = rsq.ecart_type_jour(hist)
 
         seance = ind.variation_seance_pct(hist)
-        if seance is not None and seance <= -seuils["baisse_seance_pct"]:
+        seance_ordinaire = risque is not None and risque.z_jour is not None and risque.z_jour > -2
+        if (seance is not None and seance <= -seuils["baisse_seance_pct"]
+                and (not seance_ordinaire or seance <= -2 * seuils["baisse_seance_pct"])):
             # nouvelle alerte dans la journée à chaque palier de 3 points
             alertes.append(
                 Alerte(
@@ -79,7 +85,7 @@ def alertes_portefeuille(
         precedent = cours_precedents.get(ticker)
         if precedent:
             chute = (dernier / precedent - 1) * 100
-            if chute <= -seuils["chute_rapide_pct"]:
+            if chute <= -max(seuils["chute_rapide_pct"], 1.5 * (sigma or 0)):
                 alertes.append(
                     Alerte(
                         f"rapide:{ticker}:{dernier:.6g}",
@@ -98,8 +104,18 @@ def alertes_portefeuille(
                 )
             )
 
+        if risque is not None and risque.score >= seuils["risque_alerte"]:
+            alertes.append(
+                Alerte(
+                    f"risque:{ticker}:{palier(-risque.score, 10)}",
+                    rsq.formater(risque, nom, rsq.effet_sur_gains(hist["Close"].dropna(), prix_revient)),
+                )
+            )
+
         sommet = ind.ecart_au_plus_haut_pct(hist.iloc[-63:])
-        if sommet is not None and sommet <= -seuils["baisse_depuis_sommet_pct"]:
+        repli_habituel = (risque is not None and risque.centile_repli is not None
+                          and risque.centile_repli < 75)
+        if sommet is not None and sommet <= -seuils["baisse_depuis_sommet_pct"] and not repli_habituel:
             alertes.append(
                 Alerte(
                     f"sommet:{ticker}:{palier(sommet, 5)}",
