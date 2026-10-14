@@ -62,3 +62,12 @@ def test_migration_base_existante(tmp_path):
     journal = Journal(chemin)
     id_ = journal.ouvrir_conseil("A", 1, 0.9, 1.2, 10, 2)
     assert journal.decider_conseil(id_, "achete")
+
+
+def test_tickers_a_suffixe_non_cliquables():
+    from boursicoteur.notifications import pour_telegram
+
+    texte = pour_telegram("🔴 Sanofi (SAN.PA) : cours < MM20 & ASML.AS\nhttps://x.com/a.PA")
+    assert "(<code>SAN.PA</code>)" in texte and "<code>ASML.AS</code>" in texte
+    assert "&lt; MM20 &amp;" in texte
+    assert "https://x.com/a.PA" in texte  # les vrais liens restent intacts
