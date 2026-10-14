@@ -45,7 +45,8 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
     alertes = signaux.alertes_portefeuille(conf["portefeuille"], historiques, conf["seuils"])
     alertes += signaux.alerte_marche(historiques.get(VIX), conf["seuils"]["vix_alerte"])
     for alerte in alertes:
-        if journal.alerte_inedite(alerte.cle, alerte.message):
+        jour = date.min if alerte.unique else None
+        if journal.alerte_inedite(alerte.cle, alerte.message, jour):
             notifieur.envoyer(alerte.message, titre="Alerte", urgent=alerte.urgente)
 
     # Actus nouvelles sur les valeurs que tu détiens

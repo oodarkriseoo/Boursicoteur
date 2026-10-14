@@ -22,6 +22,12 @@ def test_alerte_une_fois_par_jour(journal):
     assert journal.alerte_inedite("vix", "msg", date(2026, 10, 15))
 
 
+def test_alerte_unique_pas_renvoyee_le_lendemain(journal):
+    assert journal.alerte_inedite("revient:ABC:20", "msg", date.min)
+    assert not journal.alerte_inedite("revient:ABC:20", "msg", date.min)
+    assert journal.alerte_inedite("revient:ABC:30", "msg", date.min)
+
+
 def test_cycle_hypotheses_et_bilan(journal):
     creee = datetime(2026, 9, 1)
     h_ok = journal.noter(Hypothese("A", "hausse", 10, 3, "r", "i"), 100, 50, le=creee)

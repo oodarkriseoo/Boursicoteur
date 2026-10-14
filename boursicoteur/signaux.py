@@ -16,6 +16,9 @@ class Alerte:
     cle: str  # sert à ne pas renvoyer la même alerte deux fois dans la journée
     message: str
     urgente: bool = True
+    # True : envoyée une seule fois tant que la clé ne change pas (et non
+    # chaque jour), pour les situations qui durent comme une perte latente.
+    unique: bool = False
 
 
 @dataclass
@@ -51,8 +54,9 @@ def alertes_portefeuille(
         if sommet is not None and sommet <= -seuils["baisse_depuis_sommet_pct"]:
             alertes.append(
                 Alerte(
-                    f"sommet:{ticker}",
+                    f"sommet:{ticker}:{palier(sommet, 5)}",
                     f"⚠️ {nom} ({ticker}) est à {sommet:.1f} % de son plus haut sur 3 mois.",
+                    unique=True,
                 )
             )
 
@@ -63,13 +67,20 @@ def alertes_portefeuille(
             if perte <= -seuils["perte_vs_prix_revient_pct"]:
                 alertes.append(
                     Alerte(
-                        f"revient:{ticker}",
+                        f"revient:{ticker}:{palier(perte, 10)}",
                         f"🛑 {nom} ({ticker}) est à {perte:.1f} % de ton prix de revient "
                         f"({dernier:.2f} contre {prix_revient:.2f}). "
                         "C'est le moment de relire la règle de sortie que tu t'étais fixée.",
+                        unique=True,
                     )
                 )
     return alertes
+
+
+def palier(baisse_pct: float, pas: int) -> int:
+    """Palier de baisse franchi (-23 % avec un pas de 10 donne 20) : une
+    nouvelle alerte part seulement quand la baisse s'aggrave d'un palier."""
+    return int(-baisse_pct // pas) * pas
 
 
 def alerte_marche(vix: pd.DataFrame | None, seuil: float) -> list[Alerte]:

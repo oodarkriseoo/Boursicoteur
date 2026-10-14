@@ -10,7 +10,14 @@ def test_alerte_chute_seance_et_prix_de_revient():
     hist = serie([100] * 30 + [70])
     portefeuille = [{"ticker": "ABC", "nom": "Abc", "prix_revient": 100}]
     cles = {a.cle for a in signaux.alertes_portefeuille(portefeuille, {"ABC": hist}, SEUILS)}
-    assert cles == {"seance:ABC", "sommet:ABC", "revient:ABC"}
+    assert cles == {"seance:ABC", "sommet:ABC:30", "revient:ABC:30"}
+
+
+def test_palier():
+    assert signaux.palier(-23, 10) == 20
+    assert signaux.palier(-29.9, 10) == 20
+    assert signaux.palier(-62, 10) == 60
+    assert signaux.palier(-17, 5) == 15
 
 
 def test_aucune_alerte_si_tout_va_bien(hausse):
