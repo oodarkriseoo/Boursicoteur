@@ -74,6 +74,10 @@ suivis, avec leurs risques.
 
 Pour les hypothèses haussières, cherche en priorité des catalyseurs concrets dans les actus : partenariat, contrat de fabrication ou d'approvisionnement, prise de participation, résultats ou prévisions relevés, comme l'annonce d'Intel fabriquant des puces pour Nvidia. Un catalyseur confirmé par une hausse du cours et des volumes vaut plus qu'un simple mouvement technique.
 
+La section « Mémoire » donne l'effet réellement mesuré des news passées par secteur, \
+le bilan de tes hypothèses précédentes et ce qu'ont fait les cours après les dernières \
+news de chaque valeur : appuie-toi dessus, et baisse ta confiance si ton bilan est faible.
+
 Sois sobre et honnête : une confiance de 4 ou 5 doit rester rare, et il vaut mieux ne \
 formuler aucune hypothèse que d'en inventer une sans appui dans les données. Rappelle-toi \
 que la plupart des valeurs qui montent très vite finissent par corriger fortement. \

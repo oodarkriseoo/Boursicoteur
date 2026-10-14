@@ -22,6 +22,7 @@ from . import config as cfg
 from . import conseils as cons
 from .courtier import Courtier, contrat_ibkr
 from . import hypotheses as hyp
+from . import memoire
 from . import opportunites as opp
 from . import risque as rsq
 from . import signaux
@@ -171,7 +172,9 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
     # seules les valeurs proches du seuil avec une actu fraîche coûtent un appel à Claude
     candidates = [o for o in scores if o.nouveau and o.score >= seuil - 25][:8]
     if candidates:
-        opp.affiner_avec_claude(candidates, conf["ia"], reglages.get("modele"))
+        opp.affiner_avec_claude(candidates, conf["ia"], reglages.get("modele"),
+                                memoire=memoire.fiche(journal, [o.ticker for o in candidates],
+                                                      conf["secteurs"]))
     retenues = sorted((o for o in candidates if o.score >= seuil), key=lambda o: o.score, reverse=True)
 
     for o in retenues[: reglages["alertes_max"]]:
@@ -290,6 +293,7 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
         "date": date.today().isoformat(),
     }
     donnees = hyp.preparer_donnees(actus, pistes, intros, marche)
+    donnees += "\n\n" + memoire.fiche(journal, surcharges=conf["secteurs"])
     resultat = hyp.avec_claude(donnees, conf["ia"])
 
     if resultat:

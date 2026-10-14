@@ -20,6 +20,7 @@ DEFAUTS: dict[str, Any] = {
         "vix_alerte": 30.0,
         "volume_inhabituel_x": 3.0,
     },
+    "secteurs": {},  # ticker → secteur, en complément de memoire.SECTEURS
     "theme_ia": {"univers": [], "mots_cles": [], "pistes_max": 5},
     "opportunites": {"activee": True, "seuil_alerte": 60, "alertes_max": 3,
                      "modele": "claude-sonnet-5-5"},

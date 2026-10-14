@@ -20,6 +20,8 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 
 **Historique des news.** Chaque news porteuse d'un catalyseur est notée avec le cours du moment ; son effet est mesuré à 1 jour, 1 semaine et 4 semaines, en points d'écart à l'ETF de référence. Dès qu'une catégorie (contrat, partenariat, résultats…) compte 10 cas mesurés, son poids dans le score est corrigé par son effet réel, de la moitié à une fois et demie. Le bilan mensuel affiche l'effet moyen de chaque catégorie. Il faut plusieurs mois pour que ces chiffres veuillent dire quelque chose.
 
+**Mémoire de l'IA.** Avec les news du jour, Claude reçoit une fiche courte recalculée depuis le journal : l'effet mesuré de chaque type de news par secteur, le bilan de ses hypothèses passées et ce qu'ont fait les cours après les dernières news de chaque valeur. Il raisonne ainsi sur des chiffres réels plutôt que de mémoire. Les secteurs se complètent dans la section `secteurs` de la configuration.
+
 Les hypothèses sont rédigées par Claude (API Anthropic) si une clé est fournie. Sans clé, des règles simples prennent le relais.
 
 ## Installation
