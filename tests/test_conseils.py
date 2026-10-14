@@ -68,3 +68,12 @@ def test_suivi_et_bilan_des_conseils():
     # A : 200 × -11 % - 2 = -24 ; B : 100 × +22 % - 2 = +20
     assert bilan["clos"] == 2 and bilan["gagnants_pct"] == 50
     assert bilan["gain_net_eur"] == pytest.approx(-4)
+
+
+def test_position_pea_de_long_terme_a_reevaluer_plutot_que_vendre(baisse):
+    avis = cons.avis_position({"ticker": "MC.PA", "enveloppe": "PEA"}, baisse, 160)
+    assert avis.action == "réévaluer" and avis.emoji == "🟡"
+    assert "long terme" in avis.raisons[-1]
+    # choix explicite : horizon court même dans le PEA
+    assert cons.avis_position({"ticker": "MC.PA", "enveloppe": "PEA", "horizon": "court"},
+                              baisse, 160).action == "vendre"
