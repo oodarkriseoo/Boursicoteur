@@ -13,6 +13,17 @@ def test_alerte_chute_seance_et_prix_de_revient():
     assert cles == {"seance:ABC", "sommet:ABC:30", "revient:ABC:30"}
 
 
+def test_prix_de_revient_en_euros_pour_une_valeur_en_dollars():
+    hist = serie([115] * 30)  # cotée 115 $ ; achetée 100 € = 115 $ au taux de 1,15
+    position = [{"ticker": "US", "prix_revient": 100, "devise": "USD"}]
+    assert signaux.alertes_portefeuille(position, {"US": hist}, SEUILS, {"USD": 1.15}) == []
+    hist = serie([80] * 30)  # 80 $ = -30 % en dollars
+    cles = {a.cle for a in signaux.alertes_portefeuille(position, {"US": hist}, SEUILS, {"USD": 1.15})}
+    assert "revient:US:30" in cles
+    # taux indisponible : on s'abstient plutôt que de comparer des devises différentes
+    assert signaux.alertes_portefeuille(position, {"US": hist}, SEUILS, {}) == []
+
+
 def test_palier():
     assert signaux.palier(-23, 10) == 20
     assert signaux.palier(-29.9, 10) == 20
