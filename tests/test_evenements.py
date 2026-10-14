@@ -15,7 +15,7 @@ class Notif:
         self.envois = []
 
     def envoyer(self, texte, titre="", urgent=False, boutons=None):
-        self.envois.append((titre, texte, urgent))
+        self.envois.append((titre, texte, boutons))
 
 
 def effet(evenement=1, ticker="SU.PA", confiance=3, delai=200):
@@ -63,7 +63,8 @@ def branche(monkeypatch):
     reponse = {"effets": [effet(), effet(evenement=0, ticker="LLY", confiance=2)]}
     monkeypatch.setattr(cli.src_actus, "lire_flux", lambda url, limite, cache: list(ACTUS))
     monkeypatch.setattr(cli.src_cours, "historiques",
-                        lambda tickers, periode: {t: serie([100.0, 101.0]) for t in tickers})
+                        lambda tickers, periode: {t: serie([100.0 + (i % 3) for i in range(40)])
+                                                  for t in tickers})
 
     def claude(donnees, config_ia, schema, consignes, modele):
         appels.append(donnees)
@@ -82,6 +83,11 @@ def test_evenements_notent_au_journal_et_alertent_au_dessus_du_seuil(conf, branc
     assert [(l["lien"], l["ticker"]) for l in lignes] == [("http://e/1#LLY", "LLY"), ("http://e/2#SU.PA", "SU.PA")]
     assert {l["origine"] for l in journal.db.execute("SELECT origine FROM hypotheses")} == {"evenement"}
     assert [t for t, _, _ in notif.envois] == ["Événement"]
+    # hausse attendue : plan d'achat chiffré, suivi au journal, avec ses boutons
+    titre, texte, boutons = notif.envois[0]
+    assert "Conseil d'achat SU.PA" in texte
+    (conseil,) = journal.conseils_ouverts()
+    assert boutons == [[("✅ Déjà acheté", f"achete:{conseil['id']}"), ("❌ Ignorer", f"ignore:{conseil['id']}")]]
 
     # actus déjà traitées : plus d'appel à Claude
     cli.evenements(conf, journal, notif)
@@ -97,6 +103,16 @@ def test_appels_a_claude_espaces_et_actus_gardees_si_indisponible(conf, branche,
     # moins d'un quart d'heure après : pas de nouvel appel
     monkeypatch.setattr(cli.hyp, "avec_claude", lambda *a, **k: pytest.fail("appel trop tôt"))
     cli.evenements(conf, journal, Notif(), etat)
+
+
+def test_baisse_sur_une_position_detenue_previent_sans_plan(conf, branche, monkeypatch):
+    baisse = dict(effet(), sens="baisse")
+    monkeypatch.setattr(cli.hyp, "avec_claude", lambda *a, **k: {"effets": [baisse]})
+    journal, notif = Journal(":memory:"), Notif()
+    cli.evenements(conf, journal, notif)
+    _, texte, boutons = notif.envois[0]
+    assert "Tu détiens cette valeur" in texte and boutons is None
+    assert journal.conseils_ouverts() == []
 
 
 def test_desactive(conf, branche):

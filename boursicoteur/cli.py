@@ -182,12 +182,8 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
         plan, id_conseil = conseil_achat(conf, journal, o.ticker, historiques, eurusd)
         if plan:
             texte += "\n\n" + plan
-        boutons = None
-        if id_conseil:
-            boutons = [[("✅ Déjà acheté", f"achete:{id_conseil}"), ("❌ Ignorer", f"ignore:{id_conseil}")]]
-            if Courtier(conf["courtier"]).actif and contrat_ibkr(o.ticker):
-                boutons.insert(0, [("🛒 Acheter via IBKR", f"commande:{id_conseil}")])
-        notifieur.envoyer(texte, titre="Opportunité", urgent=True, boutons=boutons)
+        notifieur.envoyer(texte, titre="Opportunité", urgent=True,
+                          boutons=boutons_conseil(conf, o.ticker, id_conseil))
         # notée au journal : le bilan dira si les opportunités scorées tiennent leurs promesses
         journal.noter(
             Hypothese(o.ticker, "hausse", 20, 3 if o.score >= 80 else 2,
@@ -236,8 +232,11 @@ def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None =
     if not effets:
         return
 
-    historiques = src_cours.historiques(list({e.ticker for e in effets}) + [conf["reference"]], periode="5d")
+    historiques = src_cours.historiques(list({e.ticker for e in effets}) + [conf["reference"], "EURUSD=X"],
+                                        periode="6mo")
     reference = _dernier(historiques, conf["reference"])
+    eurusd = _dernier(historiques, "EURUSD=X")
+    detenues = {p["ticker"] for p in conf["portefeuille"]}
     retenus = []
     for e in effets:
         cours = _dernier(historiques, e.ticker)
@@ -252,8 +251,28 @@ def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None =
         retenus.append(e)
     alertes = [e for e in retenus if e.confiance >= reglages["confiance_alerte"]]
     for e in alertes[: reglages["alertes_max"]]:
-        if journal.alerte_inedite(f"evenement:{e.ticker}:{e.actu.lien}", e.chaine):
-            notifieur.envoyer(evt.formater(e), titre="Événement", urgent=e.confiance >= 4)
+        if not journal.alerte_inedite(f"evenement:{e.ticker}:{e.actu.lien}", e.chaine):
+            continue
+        texte, id_conseil = evt.formater(e), None
+        if e.sens == "hausse":
+            # même plan chiffré que pour une opportunité : stop, objectif, montant borné par la poche
+            plan, id_conseil = conseil_achat(conf, journal, e.ticker, historiques, eurusd)
+            if plan:
+                texte += "\n\n" + plan
+        elif e.ticker in detenues:
+            texte += "\n\n⚠️ Tu détiens cette valeur : vérifie ton stop et décide à froid si tu allèges."
+        notifieur.envoyer(texte, titre="Événement", urgent=e.confiance >= 4,
+                          boutons=boutons_conseil(conf, e.ticker, id_conseil))
+
+
+def boutons_conseil(conf, ticker, id_conseil):
+    """Boutons sous un conseil d'achat : déjà acheté, ignorer, et IBKR s'il est branché."""
+    if not id_conseil:
+        return None
+    boutons = [[("✅ Déjà acheté", f"achete:{id_conseil}"), ("❌ Ignorer", f"ignore:{id_conseil}")]]
+    if Courtier(conf["courtier"]).actif and contrat_ibkr(ticker):
+        boutons.insert(0, [("🛒 Acheter via IBKR", f"commande:{id_conseil}")])
+    return boutons
 
 
 def conseil_achat(conf, journal: Journal, ticker, historiques, eurusd) -> tuple[str | None, int | None]:
