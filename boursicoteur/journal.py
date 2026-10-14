@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS alertes (
     message TEXT NOT NULL,
     PRIMARY KEY (cle, jour)
 );
+CREATE TABLE IF NOT EXISTS cours_vus (
+    ticker TEXT PRIMARY KEY,
+    cours REAL NOT NULL,
+    vu_le TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS hypotheses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     creee_le TEXT NOT NULL,
@@ -87,6 +92,28 @@ class Journal:
         )
         self.db.commit()
         return bool(cur.rowcount)
+
+    # --- cours ---------------------------------------------------------------
+    def echanger_cours(
+        self, cours: dict[str, float], age_max: timedelta = timedelta(hours=3),
+        maintenant: datetime | None = None,
+    ) -> dict[str, float]:
+        """Enregistre les cours du contrôle et renvoie ceux du contrôle précédent,
+        s'il date de moins de ``age_max`` (au-delà, l'écart mesurerait un trou
+        de cotation de la nuit, déjà couvert par l'alerte de séance)."""
+        maintenant = maintenant or datetime.now()
+        precedents = {}
+        for ticker, valeur in cours.items():
+            ligne = self.db.execute("SELECT cours, vu_le FROM cours_vus WHERE ticker = ?",
+                                    (ticker,)).fetchone()
+            if ligne and maintenant - datetime.fromisoformat(ligne["vu_le"]) <= age_max:
+                precedents[ticker] = ligne["cours"]
+            self.db.execute(
+                "INSERT OR REPLACE INTO cours_vus (ticker, cours, vu_le) VALUES (?, ?, ?)",
+                (ticker, valeur, maintenant.isoformat(timespec="seconds")),
+            )
+        self.db.commit()
+        return precedents
 
     # --- hypothèses --------------------------------------------------------
     def noter(

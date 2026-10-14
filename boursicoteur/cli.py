@@ -1,7 +1,8 @@
 """Point d'entrée : ``python -m boursicoteur <commande>``.
 
 Commandes :
-  veille  contrôle rapide (alertes de risque, actus nouvelles sur ton portefeuille)
+  veille  contrôle rapide (alertes de chute, actus nouvelles sur ton portefeuille)
+  opportunites  repère les valeurs IA portées par un catalyseur frais, score sur 100
   resume  résumé quotidien : contexte, pistes IA, introductions, hypothèses
   bilan   évalue les hypothèses arrivées à échéance et compare à la référence
   boucle  tourne en continu : veille toutes les N minutes, résumé et bilan aux heures prévues
@@ -19,8 +20,9 @@ from zoneinfo import ZoneInfo
 
 from . import config as cfg
 from . import hypotheses as hyp
+from . import opportunites as opp
 from . import signaux
-from .journal import Journal
+from .journal import Hypothese, Journal
 from .notifications import Notifieur
 from .sources import actus as src_actus
 from .sources import cours as src_cours
@@ -45,8 +47,17 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
     historiques = src_cours.historiques(portefeuille + [VIX] + list(paires.values()), periode="6mo")
     taux = {d: _dernier(historiques, paire) for d, paire in paires.items()}
 
+    # Actus d'abord : la dernière sur chaque valeur accompagne les alertes de chute
+    actus = src_actus.collecter([], portefeuille)
+    titres = {}
+    for a in actus:
+        titres.setdefault(a.ticker, a)  # les flux listent le plus récent en premier
+    cours = {t: c for t in portefeuille if (c := _dernier(historiques, t)) is not None}
+    precedents = journal.echanger_cours(cours)
+
     alertes = signaux.alertes_portefeuille(
-        conf["portefeuille"], historiques, conf["seuils"], {d: t for d, t in taux.items() if t}
+        conf["portefeuille"], historiques, conf["seuils"], {d: t for d, t in taux.items() if t},
+        precedents, titres,
     )
     alertes += signaux.alerte_marche(historiques.get(VIX), conf["seuils"]["vix_alerte"])
     for alerte in alertes:
@@ -55,12 +66,46 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
             notifieur.envoyer(alerte.message, titre="Alerte", urgent=alerte.urgente)
 
     # Actus nouvelles sur les valeurs que tu détiens
-    actus = src_actus.collecter([], portefeuille)
     nouvelles = journal.nouvelles_actus([a.lien for a in actus])
     a_signaler = [a for a in actus if a.lien in nouvelles]
     if a_signaler:
         texte = "\n".join(f"• [{a.ticker}] {a.titre}\n  {a.lien}" for a in a_signaler[:10])
         notifieur.envoyer(texte, titre="Actus sur ton portefeuille")
+
+
+def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
+    """Alerte immédiate quand une valeur de l'univers IA reçoit un catalyseur
+    frais et que le marché confirme (score au-dessus du seuil)."""
+    reglages = conf["opportunites"]
+    if not reglages["activee"]:
+        return
+    univers = conf["theme_ia"]["univers"]
+    historiques = src_cours.historiques(univers + [conf["reference"]], periode="6mo")
+    actus = src_actus.collecter([], univers)
+    # préfixe propre : le résumé du matin marque aussi les actus comme vues
+    nouvelles = {l[4:] for l in journal.nouvelles_actus([f"opp:{a.lien}" for a in actus])}
+    scores = opp.scorer(univers, historiques, actus, nouvelles, conf["seuils"]["volume_inhabituel_x"])
+
+    seuil = reglages["seuil_alerte"]
+    # seules les valeurs proches du seuil avec une actu fraîche coûtent un appel à Claude
+    candidates = [o for o in scores if o.nouveau and o.score >= seuil - 25][:8]
+    if candidates:
+        opp.affiner_avec_claude(candidates, conf["ia"], reglages.get("modele"))
+    retenues = sorted((o for o in candidates if o.score >= seuil), key=lambda o: o.score, reverse=True)
+
+    reference = _dernier(historiques, conf["reference"])
+    for o in retenues[: reglages["alertes_max"]]:
+        if not journal.alerte_inedite(f"opportunite:{o.ticker}", f"score {o.score}"):
+            continue
+        notifieur.envoyer(opp.formater(o), titre="Opportunité", urgent=True)
+        # notée au journal : le bilan dira si les opportunités scorées tiennent leurs promesses
+        journal.noter(
+            Hypothese(o.ticker, "hausse", 20, 3 if o.score >= 80 else 2,
+                      f"Opportunité {o.score}/100 : " + (o.lecture_ia or ", ".join(o.signaux)),
+                      "Le catalyseur est démenti ou le cours repasse sous son niveau d'avant l'annonce.",
+                      origine="opportunite"),
+            o.dernier_cours, reference,
+        )
 
 
 def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
@@ -103,18 +148,21 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     for h in hypotheses:
         journal.noter(h, _dernier(historiques, h.ticker), reference)
 
+    classement = opp.scorer(theme["univers"], historiques, actus, set(),
+                            conf["seuils"]["volume_inhabituel_x"])[: theme["pistes_max"]]
     notifieur.envoyer(
-        formater_resume(contexte, pistes, hypotheses, intros_a_suivre),
+        formater_resume(contexte, classement, hypotheses, intros_a_suivre),
         titre=f"Résumé du {date.today():%d/%m/%Y}",
     )
 
 
-def formater_resume(contexte, pistes, hypotheses, intros_a_suivre) -> str:
+def formater_resume(contexte, classement, hypotheses, intros_a_suivre) -> str:
     parties = ["🌍 Contexte", contexte or "—", ""]
-    parties.append("🤖 Pistes IA du jour")
-    if pistes:
-        for p in pistes:
-            parties.append(f"• {p.ticker} (score {p.score}) : {', '.join(p.raisons) or 'pas de signal fort'}")
+    parties.append("💎 Valeurs IA les mieux notées (score sur 100)")
+    if classement:
+        for o in classement:
+            motifs = ([f"catalyseur {', '.join(o.catalyseurs)}"] if o.catalyseurs else []) + o.signaux
+            parties.append(f"• {o.ticker} {o.score}/100 : {', '.join(motifs) or 'pas de signal fort'}")
     else:
         parties.append("• Aucune donnée de cours disponible.")
     parties.append("")
@@ -177,6 +225,7 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
     while True:
         maintenant = datetime.now(PARIS)
         _proteger("veille", veille, conf, journal, notifieur)
+        _proteger("opportunites", opportunites, conf, journal, notifieur)
         if (maintenant.hour, maintenant.minute) >= (heure, minute) and dernier_resume != maintenant.date():
             _proteger("resume", resume, conf, journal, notifieur)
             dernier_resume = maintenant.date()
@@ -194,7 +243,7 @@ def _proteger(nom, action, *args) -> None:
         log.exception("Échec de « %s », nouvel essai au prochain passage.", nom)
 
 
-COMMANDES = {"veille": veille, "resume": resume, "bilan": bilan, "boucle": boucle}
+COMMANDES = {"veille": veille, "opportunites": opportunites, "resume": resume, "bilan": bilan, "boucle": boucle}
 
 
 def main(argv: list[str] | None = None) -> None:

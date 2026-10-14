@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -50,3 +50,11 @@ def test_cycle_hypotheses_et_bilan(journal):
 
 def test_bilan_vide(journal):
     assert journal.bilan()["evaluees"] == 0
+
+
+def test_cours_du_controle_precedent(journal):
+    t0 = datetime(2026, 10, 14, 10)
+    assert journal.echanger_cours({"A": 100}, maintenant=t0) == {}
+    assert journal.echanger_cours({"A": 96}, maintenant=t0 + timedelta(minutes=30)) == {"A": 100}
+    # le lendemain matin, l'écart de la nuit n'est pas une chute rapide
+    assert journal.echanger_cours({"A": 90}, maintenant=t0 + timedelta(hours=20)) == {}
