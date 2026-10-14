@@ -52,6 +52,7 @@ DEFAUTS: dict[str, Any] = {
         "modele": "claude-opus-5-5",
         "effort": "low",
         "cle_env": "ANTHROPIC_API_KEY",
+        "espace_env": "ANTHROPIC_WORKSPACE_ID",
     },
     "notifications": {
         "telegram": {"token_env": "TELEGRAM_BOT_TOKEN", "chat_id_env": "TELEGRAM_CHAT_ID"},
