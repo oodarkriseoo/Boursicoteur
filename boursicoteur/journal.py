@@ -7,6 +7,7 @@ réussite à la simple détention de l'ETF de référence.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -55,6 +56,13 @@ CREATE TABLE IF NOT EXISTS catalyseurs (
     ecart_1j REAL,  -- variation du titre moins celle de la référence, en points
     ecart_1s REAL,
     ecart_4s REAL
+);
+CREATE TABLE IF NOT EXISTS valeurs_portefeuille (
+    jour TEXT PRIMARY KEY,  -- une photo par jour, la dernière de la journée l'emporte
+    valeur_eur REAL NOT NULL,
+    apport_eur REAL NOT NULL,  -- argent ajouté (+) ou retiré (−) depuis la photo de la veille
+    reference REAL NOT NULL,  -- cours de l'ETF de référence au même moment
+    lignes TEXT NOT NULL  -- JSON ticker → [quantité, prix en €, coté ?]
 );
 CREATE TABLE IF NOT EXISTS hypotheses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -153,6 +161,25 @@ class Journal:
             )
         self.db.commit()
         return precedents
+
+    # --- valeur du portefeuille ------------------------------------------------
+    def photographier(self, jour: date, valeur_eur: float, apport_eur: float, reference: float,
+                      lignes: dict[str, list]) -> None:
+        self.db.execute(
+            "INSERT OR REPLACE INTO valeurs_portefeuille (jour, valeur_eur, apport_eur, reference, lignes) "
+            "VALUES (?, ?, ?, ?, ?)", (jour.isoformat(), valeur_eur, apport_eur, reference, json.dumps(lignes)),
+        )
+        self.db.commit()
+
+    def photo_avant(self, jour: date) -> dict | None:
+        """Dernière photo d'un jour antérieur, lignes décodées."""
+        ligne = self.db.execute("SELECT * FROM valeurs_portefeuille WHERE jour < ? ORDER BY jour DESC LIMIT 1",
+                                (jour.isoformat(),)).fetchone()
+        return {**dict(ligne), "lignes": json.loads(ligne["lignes"])} if ligne else None
+
+    def photos(self) -> list[sqlite3.Row]:
+        return self.db.execute("SELECT jour, valeur_eur, apport_eur, reference FROM valeurs_portefeuille "
+                               "ORDER BY jour").fetchall()
 
     # --- conseils d'achat (phase 2) -------------------------------------------
     def ouvrir_conseil(self, ticker: str, cours: float, stop: float, objectif: float,

@@ -54,7 +54,8 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
     paires = {d: f"EUR{d}=X" for d in devises}
     suivis = [c["ticker"] for c in journal.conseils_ouverts()]
     historiques = src_cours.historiques(
-        list(dict.fromkeys(portefeuille + suivis)) + [VIX] + list(paires.values()), periode="2y")
+        list(dict.fromkeys(portefeuille + suivis + [conf["reference"]])) + [VIX] + list(paires.values()),
+        periode="2y")
     taux = {d: _dernier(historiques, paire) for d, paire in paires.items()}
 
     # Actus d'abord : la dernière sur chaque valeur accompagne les alertes de chute
@@ -85,6 +86,7 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
         texte = cons.formater_avis(avis, position.get("nom", avis.ticker))
         if journal.alerte_inedite(cle, texte, date.min):
             notifieur.envoyer(texte, titre="Conseil sur ta position", urgent=avis.action == "vendre")
+    noter_valeur(conf, journal, historiques)
 
 
 def suivre_conseils(journal: Journal, historiques) -> list[str]:
@@ -315,8 +317,29 @@ def etat_portefeuille(positions, historiques=None) -> ptf.Etat:
     return ptf.valoriser(positions, historiques, {d: _dernier(historiques, paire) for d, paire in paires.items()})
 
 
+def detail_portefeuille(etat: ptf.Etat, journal: Journal, reference: str) -> str:
+    performance = ptf.formater_performance(journal.photos(), reference)
+    return ptf.formater(etat) + (f"\n\n{performance}" if performance else "")
+
+
+def noter_valeur(conf, journal: Journal, historiques, jour: date | None = None) -> None:
+    """Photo du jour de la valeur du portefeuille, avec le cours de la référence.
+    Refaite à chaque veille : la dernière de la journée l'emporte."""
+    reference = _dernier(historiques, conf["reference"])
+    if not conf["portefeuille"] or reference is None:
+        return
+    jour = jour or date.today()
+    etat = etat_portefeuille(conf["portefeuille"], historiques)
+    if not etat.lignes:
+        return
+    photo = ptf.photo(etat, journal.photo_avant(jour))
+    if photo is not None:
+        journal.photographier(jour, etat.valeur_eur, photo[0], reference, photo[1])
+
+
 def portefeuille(conf, journal: Journal, notifieur: Notifieur) -> None:
-    notifieur.envoyer(ptf.formater(etat_portefeuille(conf["portefeuille"])), titre="Ton portefeuille")
+    notifieur.envoyer(detail_portefeuille(etat_portefeuille(conf["portefeuille"]), journal, conf["reference"]),
+                      titre="Ton portefeuille")
 
 
 def actus_portefeuille(portefeuille, collecter=src_actus.collecter, par_valeur: int = 3) -> str:
@@ -334,7 +357,7 @@ def actus_portefeuille(portefeuille, collecter=src_actus.collecter, par_valeur: 
 
 def traiter_clics(journal: Journal, notifieur: Notifieur, offset, attente: int,
                   courtier: Courtier | None = None, portefeuille=(), collecter=src_actus.collecter,
-                  valoriser=etat_portefeuille):
+                  valoriser=etat_portefeuille, reference: str = ""):
     """Traite les boutons : actus et détail des positions, déjà acheté, ignorer, acheter
     via IBKR puis confirmer. Renvoie le nouvel offset Telegram."""
     clics, offset = notifieur.clics(offset, attente)
@@ -347,7 +370,8 @@ def traiter_clics(journal: Journal, notifieur: Notifieur, offset, attente: int,
             continue
         if action == "valeur":
             notifieur.accuser_clic(clic, "Je calcule…", message=False, retirer=False)
-            notifieur.envoyer(ptf.formater(valoriser(portefeuille)), titre="Ton portefeuille")
+            notifieur.envoyer(detail_portefeuille(valoriser(portefeuille), journal, reference),
+                              titre="Ton portefeuille")
             continue
         conseil = journal.conseil(int(id_texte)) if id_texte.isdigit() else None
         if conseil is None or action not in ("achete", "ignore", "commande", "confirme"):
@@ -565,6 +589,9 @@ def bilan(conf, journal: Journal, notifieur: Notifieur) -> None:
             texte += (f"\n• {categorie} : {e['moyenne']:+.1f} pts en moyenne, "
                       f"{e['positifs_pct']:.0f} % de cas gagnants ({e['cas']} cas)")
         texte += f"\nEn dessous de {opp.CAS_MINIMUM} cas, ces chiffres ne corrigent pas encore le score."
+    performance = ptf.formater_performance(journal.photos(), conf["reference"])
+    if performance:
+        texte += f"\n\n{performance}"
     notifieur.envoyer(texte, titre="Bilan des hypothèses")
 
 
@@ -600,7 +627,8 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
             if notifieur.token and notifieur.chat_id:
                 try:
                     offset = traiter_clics(journal, notifieur, offset, int(attente),
-                                           Courtier(conf["courtier"]), conf["portefeuille"])
+                                           Courtier(conf["courtier"]), conf["portefeuille"],
+                                           reference=conf["reference"])
                 except Exception:
                     log.exception("Échec du traitement d'un clic.")
                     time.sleep(5)

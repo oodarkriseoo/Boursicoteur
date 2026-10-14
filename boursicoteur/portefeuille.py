@@ -1,5 +1,6 @@
 """Suivi du portefeuille : valeur, performance et poids de chaque ligne et de
-chaque enveloppe (PEA, compte-titres…), en euros.
+chaque enveloppe (PEA, compte-titres…), en euros. Une photo quotidienne de la
+valeur permet de comparer le portefeuille à l'ETF de référence dans le temps.
 
 Les cours viennent des historiques déjà récupérés ; une valeur cotée dans une
 autre devise est convertie au taux du jour. Une ligne sans cours (titre non
@@ -10,6 +11,7 @@ le total reste juste à peu près plutôt que faux de toute une ligne.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any
 
 import pandas as pd
@@ -185,3 +187,81 @@ def formater(etat: Etat) -> str:
                     + f" du total (plus de {POIDS_LOURD_PCT:.0f} %) : une mauvaise nouvelle sur cette "
                       "ligne toucherait tout le portefeuille."]
     return "\n".join(parties)
+
+
+# --- historique : le portefeuille face à la référence ---------------------------
+
+PERIODES = [("1 semaine", 7), ("1 mois", 30), ("3 mois", 91), ("1 an", 365)]
+BARRES = "▁▂▃▄▅▆▇█"
+
+
+def photo(etat: Etat, precedente: dict | None) -> tuple[float, dict[str, list]] | None:
+    """(apport en €, lignes) pour la photo du jour, ou None s'il vaut mieux ne
+    pas photographier : une ligne cotée la veille et sans cours aujourd'hui
+    ferait croire à un mouvement qui n'a pas eu lieu.
+
+    L'apport est l'argent ajouté ou retiré depuis la photo précédente (achat,
+    vente, nouvelle ligne), compté au cours du jour : il est retiré de la
+    performance pour qu'un versement ne passe pas pour un gain."""
+    lignes = {l.ticker: [l.quantite, l.valeur_eur / l.quantite, l.cotee] for l in etat.lignes}
+    if precedente is None:
+        return 0.0, lignes
+    avant = precedente["lignes"]
+    if any(a[2] and t in lignes and not lignes[t][2] for t, a in avant.items()):
+        return None
+    apport = sum((q - avant.get(t, [0])[0]) * prix for t, (q, prix, _) in lignes.items())
+    # ligne disparue (vendue en entier) : comptée à son dernier prix connu
+    apport -= sum(q * prix for t, (q, prix, _) in avant.items() if t not in lignes)
+    return apport, lignes
+
+
+def indices(photos) -> list[tuple[str, float, float]]:
+    """(jour, indice du portefeuille, indice de la référence), base 1 au
+    premier jour. L'indice du portefeuille enchaîne les rendements de chaque
+    jour, apports retirés (rendement pondéré par le temps)."""
+    resultat: list[tuple[str, float, float]] = []
+    indice = 1.0
+    for i, p in enumerate(photos):
+        if i and photos[i - 1]["valeur_eur"] > 0:
+            indice *= (p["valeur_eur"] - p["apport_eur"]) / photos[i - 1]["valeur_eur"]
+        resultat.append((p["jour"], indice, p["reference"] / photos[0]["reference"]))
+    return resultat
+
+
+def _pct(x: float) -> str:
+    return f"{100 * x:+.1f} %"
+
+
+def courbe(valeurs: list[float], bas: float, haut: float) -> str:
+    etendue = haut - bas or 1.0
+    return "".join(BARRES[min(len(BARRES) - 1, int((v - bas) / etendue * len(BARRES)))] for v in valeurs)
+
+
+def formater_performance(photos, reference: str, aujourd_hui: date | None = None, points: int = 30) -> str:
+    """Performance du portefeuille et de la référence sur plusieurs durées,
+    avec les deux courbes des derniers jours sur la même échelle."""
+    if not photos:
+        return ""
+    debut = date.fromisoformat(photos[0]["jour"])
+    if len(photos) < 2:
+        return (f"📈 Historique commencé le {debut:%d/%m/%Y} : la comparaison avec {reference} "
+                "apparaît dès demain.")
+    aujourd_hui = aujourd_hui or date.today()
+    serie = indices(photos)
+    _, fin_p, fin_r = serie[-1]
+    lignes = [f"📈 Face à {reference} (historique depuis le {debut:%d/%m/%Y})"]
+    periodes = [(nom, aujourd_hui - timedelta(days=jours)) for nom, jours in PERIODES]
+    for nom, depuis in periodes:
+        bases = [x for x in serie if date.fromisoformat(x[0]) <= depuis]
+        if bases:
+            _, p0, r0 = bases[-1]
+            lignes.append(f"• {nom} : toi {_pct(fin_p / p0 - 1)}, référence {_pct(fin_r / r0 - 1)}, "
+                          f"écart {100 * (fin_p / p0 - fin_r / r0):+.1f} pts")
+    lignes.append(f"• Depuis le début : toi {_pct(fin_p - 1)}, référence {_pct(fin_r - 1)}, "
+                  f"écart {100 * (fin_p - fin_r):+.1f} pts")
+    recents = serie[-points:]
+    tous = [x[1] for x in recents] + [x[2] for x in recents]
+    lignes.append(f"Toi        {courbe([x[1] for x in recents], min(tous), max(tous))}")
+    lignes.append(f"Référence  {courbe([x[2] for x in recents], min(tous), max(tous))}")
+    lignes.append(f"({len(recents)} derniers jours, même échelle ; versements et ventes retirés du calcul)")
+    return "\n".join(lignes)
