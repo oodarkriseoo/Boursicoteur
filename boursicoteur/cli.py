@@ -4,6 +4,7 @@ Commandes :
   veille  contrôle rapide (alertes de chute, conseils sur tes positions)
   opportunites  repère les valeurs de chaque thème portées par un catalyseur frais, score sur 100
   evenements  relie l'actu non boursière (monde, santé, défense, énergie) aux valeurs suivies
+  portefeuille  valeur, plus-value et poids de chaque ligne et de chaque enveloppe
   resume  résumé quotidien : contexte, pistes par thème, introductions, hypothèses
   bilan   évalue les hypothèses arrivées à échéance et compare à la référence
   boucle  tourne en continu : veille toutes les N minutes, résumé et bilan aux heures prévues
@@ -26,6 +27,7 @@ from .courtier import Courtier, contrat_ibkr
 from . import hypotheses as hyp
 from . import memoire
 from . import opportunites as opp
+from . import portefeuille as ptf
 from . import risque as rsq
 from . import signaux
 from .journal import Hypothese, Journal
@@ -299,6 +301,22 @@ def conseil_achat(conf, journal: Journal, ticker, historiques, eurusd) -> tuple[
 
 
 BOUTON_ACTUS = ("📰 En savoir plus : actus de mes positions", "actus:portefeuille")
+BOUTON_PORTEFEUILLE = ("💼 Détail du portefeuille", "valeur:portefeuille")
+
+
+def etat_portefeuille(positions, historiques=None) -> ptf.Etat:
+    """Valeur du portefeuille en euros ; récupère les cours manquants et les taux de change."""
+    devises = {p["devise"] for p in positions if p.get("devise", "EUR") != "EUR"}
+    paires = {d: f"EUR{d}=X" for d in devises}
+    historiques = dict(historiques or {})
+    manquants = [t for t in [p["ticker"] for p in positions] + list(paires.values()) if t not in historiques]
+    if manquants:
+        historiques.update(src_cours.historiques(list(dict.fromkeys(manquants)), periode="5d"))
+    return ptf.valoriser(positions, historiques, {d: _dernier(historiques, paire) for d, paire in paires.items()})
+
+
+def portefeuille(conf, journal: Journal, notifieur: Notifieur) -> None:
+    notifieur.envoyer(ptf.formater(etat_portefeuille(conf["portefeuille"])), titre="Ton portefeuille")
 
 
 def actus_portefeuille(portefeuille, collecter=src_actus.collecter, par_valeur: int = 3) -> str:
@@ -315,8 +333,9 @@ def actus_portefeuille(portefeuille, collecter=src_actus.collecter, par_valeur: 
 
 
 def traiter_clics(journal: Journal, notifieur: Notifieur, offset, attente: int,
-                  courtier: Courtier | None = None, portefeuille=(), collecter=src_actus.collecter):
-    """Traite les boutons : actus des positions, déjà acheté, ignorer, acheter
+                  courtier: Courtier | None = None, portefeuille=(), collecter=src_actus.collecter,
+                  valoriser=etat_portefeuille):
+    """Traite les boutons : actus et détail des positions, déjà acheté, ignorer, acheter
     via IBKR puis confirmer. Renvoie le nouvel offset Telegram."""
     clics, offset = notifieur.clics(offset, attente)
     for clic in clics:
@@ -325,6 +344,10 @@ def traiter_clics(journal: Journal, notifieur: Notifieur, offset, attente: int,
             # le bouton reste sous le résumé : chaque clic récolte des actus fraîches
             notifieur.accuser_clic(clic, "Je rassemble les actus…", message=False, retirer=False)
             notifieur.envoyer(actus_portefeuille(portefeuille, collecter), titre="Actus de tes positions")
+            continue
+        if action == "valeur":
+            notifieur.accuser_clic(clic, "Je calcule…", message=False, retirer=False)
+            notifieur.envoyer(ptf.formater(valoriser(portefeuille)), titre="Ton portefeuille")
             continue
         conseil = journal.conseil(int(id_texte)) if id_texte.isdigit() else None
         if conseil is None or action not in ("achete", "ignore", "commande", "confirme"):
@@ -415,10 +438,11 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     avis = [cons.formater_avis(a, p.get("nom", a.ticker))
             for p, a in avis_portefeuille(conf, historiques, taux)]
     avis += thermometre(conf, historiques)
+    valeur = ptf.synthese(etat_portefeuille(conf["portefeuille"], historiques)) if conf["portefeuille"] else []
     notifieur.envoyer(
-        formater_resume(contexte, classement, hypotheses, intros_a_suivre, avis),
+        formater_resume(contexte, classement, hypotheses, intros_a_suivre, avis, valeur),
         titre=f"Résumé du {date.today():%d/%m/%Y}",
-        boutons=[BOUTON_ACTUS] if conf["portefeuille"] else None,
+        boutons=[[BOUTON_PORTEFEUILLE], [BOUTON_ACTUS]] if conf["portefeuille"] else None,
     )
 
 
@@ -444,8 +468,12 @@ def secteurs(conf) -> dict[str, str]:
     return {**par_theme, **conf["secteurs"]}
 
 
-def formater_resume(contexte, classement: dict[str, list], hypotheses, intros_a_suivre, avis=()) -> str:
-    parties = ["🌍 Contexte", contexte or "—", ""]
+def formater_resume(contexte, classement: dict[str, list], hypotheses, intros_a_suivre, avis=(),
+                    valeur=()) -> str:
+    parties = []
+    if valeur:
+        parties += list(valeur) + [""]
+    parties += ["🌍 Contexte", contexte or "—", ""]
     if avis:
         parties.append("📋 Conseils sur tes positions")
         parties += list(avis)
@@ -588,7 +616,8 @@ def _proteger(nom, action, *args) -> None:
         log.exception("Échec de « %s », nouvel essai au prochain passage.", nom)
 
 
-COMMANDES = {"veille": veille, "opportunites": opportunites, "evenements": evenements, "resume": resume,
+COMMANDES = {"veille": veille, "opportunites": opportunites, "evenements": evenements,
+             "portefeuille": portefeuille, "resume": resume,
              "bilan": bilan, "boucle": boucle}
 
 
