@@ -178,6 +178,29 @@ opportunites:
   alertes_max: 3              # par passage, pour ne pas être noyé
   modele: claude-sonnet-5-5   # modèle plus économique pour ces appels fréquents
 
+# Actus non boursières : actualité mondiale et sources officielles (autorisations
+# de médicaments, contrats du Pentagone, énergie), relues toutes les 5 minutes.
+# Claude relie chaque événement aux valeurs suivies, surtout en second rang
+# (fournisseur, client, coût d'une matière). Chaque lien est mesuré à 1 jour,
+# 1 semaine et 4 semaines ; le bilan dit si ces pistes battent les autres.
+# Coût : au plus un appel à Claude par quart d'heure, 40 par jour.
+evenements:
+  actives: true
+  intervalle_min: 5
+  pause_ia_min: 15
+  appels_max_jour: 40
+  confiance_alerte: 3         # alerte Telegram à partir de 3/5 ; en dessous, juste noté au journal
+  alertes_max: 3
+  modele: claude-sonnet-5-5
+  flux:
+    - https://feeds.bbci.co.uk/news/world/rss.xml
+    - https://feeds.bbci.co.uk/news/business/rss.xml
+    - https://www.lemonde.fr/international/rss_full.xml
+    - https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml
+    - https://www.ema.europa.eu/en/news.xml
+    - https://www.war.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=400&Site=945&max=10
+    - https://www.eia.gov/rss/todayinenergy.xml
+
 # Phase 2 : conseils d'achat et de vente chiffrés, que tu passes toi-même.
 # Chaque opportunité retenue reçoit un plan : prix maximum, stop, objectif et
 # montant calculé pour que la perte au stop reste près de risque_par_position_pct

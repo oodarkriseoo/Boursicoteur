@@ -10,6 +10,7 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 |---|---|---|
 | `veille` | Alertes de chute : séance (puis à chaque palier de 3 points), chute rapide entre deux contrôles, passage sous ton seuil de sortie (`stop`), recul depuis le plus haut, perte par rapport à ton prix de revient, VIX élevé. Chaque alerte de chute rappelle ton écart au prix de revient, le plus bas des 20 dernières séances et la dernière actu. Les actus de tes positions ne sont plus envoyées d'office : le bouton « En savoir plus » sous le résumé les rassemble à la demande, liens compris. | Toutes les 30 min |
 | `opportunites` | Score sur 100 pour chaque valeur des thèmes suivis : catalyseur dans l'actu (partenariat, contrat, prise de participation, résultats relevés), dynamique, volume, accélération du jour. Claude affine la note du catalyseur. Au-dessus du seuil, alerte immédiate, notée au journal. | Toutes les 30 min |
+| `evenements` | Lit l'actualité mondiale et des sources officielles (FDA, Agence européenne du médicament, contrats du Pentagone, énergie). Claude relie chaque événement aux valeurs suivies, surtout les effets de second rang, avec la chaîne de cause à effet. Au-dessus de 3/5 de confiance, alerte ; chaque lien est noté au journal et mesuré. | Toutes les 5 min (Claude au plus tous les quarts d'heure) |
 | `resume` | Résumé du contexte, conseil sur chacune de tes positions (garder, alléger, prendre des gains, vendre), valeurs les mieux notées sur 100 dans chaque thème (avec la mention « PEA possible »), introductions en bourse à venir et dossiers déposés à la SEC, hypothèses notées au journal. | Chaque matin |
 | `bilan` | Évalue les hypothèses arrivées à échéance : taux de réussite, gain moyen, et comparaison avec l'ETF de référence. | Chaque mois |
 | `boucle` | Enchaîne tout automatiquement selon la section `planification` de la configuration. | En continu |
@@ -25,6 +26,8 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 ```bash
 python3 -c "import yaml; e = yaml.safe_load(open('config.example.yaml')); open('config.yaml', 'a').write('\n' + yaml.safe_dump({'themes': e['themes']}, allow_unicode=True, sort_keys=False))"
 ```
+
+**Actus non boursières.** Un site boursier qui conseille d'acheter arrive après le marché. La commande `evenements` part de faits bruts (un détroit fermé, un médicament autorisé, un contrat militaire, une canicule) et cherche qui en profite ou en souffre parmi tes valeurs, en privilégiant ce qui met des jours à se voir : la course à la seconde est perdue d'avance face aux robots des fonds. Chaque lien est noté comme catalyseur (catégories « événement direct » ou « indirect », hausse ou baisse attendue) et comme hypothèse ; le bilan mensuel compare les origines des hypothèses entre elles. Les flux, l'intervalle et le nombre d'appels à Claude se règlent dans la section `evenements`.
 
 **Mémoire de l'IA.** Avec les news du jour, Claude reçoit une fiche courte recalculée depuis le journal : l'effet mesuré de chaque type de news par secteur, le bilan de ses hypothèses passées et ce qu'ont fait les cours après les dernières news de chaque valeur. Il raisonne ainsi sur des chiffres réels plutôt que de mémoire. Les secteurs se complètent dans la section `secteurs` de la configuration.
 

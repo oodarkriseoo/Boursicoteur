@@ -25,14 +25,21 @@ def flux_par_valeur(tickers: list[str]) -> dict[str, str]:
     return {t: URL_YAHOO.format(ticker=quote(t)) for t in tickers}
 
 
-def lire_flux(url: str, ticker: str | None = None, limite: int = 20) -> list[Actu]:
+def lire_flux(url: str, ticker: str | None = None, limite: int = 20,
+              cache: dict[str, dict[str, str]] | None = None) -> list[Actu]:
+    """``cache`` garde l'ETag et la date de chaque flux : relu souvent, un flux
+    inchangé ne renvoie rien et ne coûte presque rien au serveur."""
     import feedparser
 
+    deja = (cache or {}).get(url, {})
     try:
-        flux = feedparser.parse(url, agent="Boursicoteur/0.1")
+        flux = feedparser.parse(url, agent="Boursicoteur/0.1", etag=deja.get("etag"),
+                                modified=deja.get("modified"))
     except Exception as exc:
         log.warning("Flux %s illisible : %s", url, exc)
         return []
+    if cache is not None and (flux.get("etag") or flux.get("modified")):
+        cache[url] = {"etag": flux.get("etag"), "modified": flux.get("modified")}
     source = flux.feed.get("title", url) if getattr(flux, "feed", None) else url
     actus = []
     for entree in flux.entries[:limite]:
