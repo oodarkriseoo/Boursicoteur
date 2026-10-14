@@ -28,6 +28,19 @@ CREATE TABLE IF NOT EXISTS cours_vus (
     cours REAL NOT NULL,
     vu_le TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS conseils (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cree_le TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    cours REAL NOT NULL,
+    stop REAL NOT NULL,
+    objectif REAL NOT NULL,
+    montant_eur REAL NOT NULL,
+    frais_eur REAL NOT NULL,
+    statut TEXT NOT NULL DEFAULT 'ouvert',
+    clos_le TEXT,
+    cours_final REAL
+);
 CREATE TABLE IF NOT EXISTS hypotheses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     creee_le TEXT NOT NULL,
@@ -114,6 +127,46 @@ class Journal:
             )
         self.db.commit()
         return precedents
+
+    # --- conseils d'achat (phase 2) -------------------------------------------
+    def ouvrir_conseil(self, ticker: str, cours: float, stop: float, objectif: float,
+                       montant_eur: float, frais_eur: float, le: datetime | None = None) -> int | None:
+        """Note un conseil d'achat ; None s'il y en a déjà un en cours sur ce ticker."""
+        if self.db.execute("SELECT 1 FROM conseils WHERE ticker = ? AND statut = 'ouvert'",
+                           (ticker,)).fetchone():
+            return None
+        cur = self.db.execute(
+            """INSERT INTO conseils (cree_le, ticker, cours, stop, objectif, montant_eur, frais_eur)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ((le or datetime.now()).isoformat(timespec="seconds"), ticker, cours, stop, objectif,
+             montant_eur, frais_eur),
+        )
+        self.db.commit()
+        return int(cur.lastrowid)
+
+    def conseils_ouverts(self) -> list[sqlite3.Row]:
+        return self.db.execute("SELECT * FROM conseils WHERE statut = 'ouvert'").fetchall()
+
+    def clore_conseil(self, id_: int, statut: str, cours_final: float, le: date | None = None) -> None:
+        self.db.execute(
+            "UPDATE conseils SET statut = ?, cours_final = ?, clos_le = ? WHERE id = ?",
+            (statut, cours_final, (le or date.today()).isoformat(), id_),
+        )
+        self.db.commit()
+
+    def bilan_conseils(self) -> dict[str, float | int | None]:
+        """Résultat des conseils clos, comme si chacun avait été suivi à la lettre."""
+        ouverts = len(self.conseils_ouverts())
+        lignes = self.db.execute("SELECT * FROM conseils WHERE statut != 'ouvert'").fetchall()
+        if not lignes:
+            return {"clos": 0, "ouverts": ouverts, "gagnants_pct": None, "gain_net_eur": None}
+        gains = [l["montant_eur"] * (l["cours_final"] / l["cours"] - 1) - l["frais_eur"] for l in lignes]
+        return {
+            "clos": len(lignes),
+            "ouverts": ouverts,
+            "gagnants_pct": 100 * sum(g > 0 for g in gains) / len(gains),
+            "gain_net_eur": sum(gains),
+        }
 
     # --- hypothèses --------------------------------------------------------
     def noter(

@@ -90,6 +90,19 @@ opportunites:
   alertes_max: 3              # par passage, pour ne pas être noyé
   modele: claude-sonnet-5-5   # modèle plus économique pour ces appels fréquents
 
+# Phase 2 : conseils d'achat et de vente chiffrés, que tu passes toi-même.
+# Chaque opportunité retenue reçoit un plan : prix maximum, stop, objectif et
+# montant calculé pour que la perte au stop reste près de risque_par_position_pct
+# de la poche. Les conseils sont suivis jusqu'au stop ou à l'objectif, et le
+# bilan mensuel donne leur résultat net de frais.
+conseils:
+  actives: true
+  poche_eur: 1000             # argent dédié aux conseils, à part de ton PEA long terme
+  risque_par_position_pct: 2  # perte maximale visée par conseil, en % de la poche (20 € ici)
+  position_max_pct: 25        # jamais plus de 25 % de la poche sur une seule valeur
+  frais_ordre_eur: 1          # Trade Republic : 1 € par ordre
+  ratio_objectif: 2           # objectif à 2 fois la distance au stop
+
 # Introductions en bourse et dépôts de dossiers (S-1) aux États-Unis.
 introductions:
   nasdaq: true

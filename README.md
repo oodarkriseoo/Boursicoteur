@@ -10,9 +10,11 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 |---|---|---|
 | `veille` | Alertes de chute : séance (puis à chaque palier de 3 points), chute rapide entre deux contrôles, passage sous ton seuil de sortie (`stop`), recul depuis le plus haut, perte par rapport à ton prix de revient, VIX élevé. Chaque alerte de chute rappelle ton écart au prix de revient, le plus bas des 20 dernières séances et la dernière actu. Actus nouvelles sur tes valeurs. | Toutes les 30 min |
 | `opportunites` | Score sur 100 pour chaque valeur de l'univers IA : catalyseur dans l'actu (partenariat, contrat, prise de participation, résultats relevés), dynamique, volume, accélération du jour. Claude affine la note du catalyseur. Au-dessus du seuil, alerte immédiate, notée au journal. | Toutes les 30 min |
-| `resume` | Résumé du contexte, valeurs IA les mieux notées sur 100, introductions en bourse à venir et dossiers déposés à la SEC, hypothèses notées au journal. | Chaque matin |
+| `resume` | Résumé du contexte, conseil sur chacune de tes positions (garder, alléger, prendre des gains, vendre), valeurs IA les mieux notées sur 100, introductions en bourse à venir et dossiers déposés à la SEC, hypothèses notées au journal. | Chaque matin |
 | `bilan` | Évalue les hypothèses arrivées à échéance : taux de réussite, gain moyen, et comparaison avec l'ETF de référence. | Chaque mois |
 | `boucle` | Enchaîne tout automatiquement selon la section `planification` de la configuration. | En continu |
+
+**Conseils chiffrés (phase 2).** Chaque opportunité retenue arrive avec un plan d'achat : ordre à cours limité, quantité, stop, objectif, et un montant calculé pour que la perte au stop reste vers 2 % de la poche dédiée (section `conseils`). La veille suit chaque conseil et t'écrit « vends » quand le stop ou l'objectif est atteint. Sur tes positions, un stop suiveur et la tendance donnent un avis : garder, alléger, prendre des gains ou vendre. Un stop ne protège pas d'une ouverture en forte baisse : la perte réelle peut alors dépasser celle prévue. Le bilan mensuel donne le résultat net des conseils, frais compris.
 
 Les hypothèses sont rédigées par Claude (API Anthropic) si une clé est fournie. Sans clé, des règles simples prennent le relais.
 
@@ -85,7 +87,7 @@ journalctl -u boursicoteur -f
 ## Feuille de route
 
 1. **Phase 1 (ce dépôt)** : observation et alertes. Aucun ordre, aucun argent engagé sur les signaux.
-2. **Phase 2** : si le bilan montre un avantage net après frais sur plusieurs mois, suivre certains signaux à la main avec une petite poche plafonnée (par exemple 10 % du portefeuille).
+2. **Phase 2 (en place)** : conseils d'achat et de vente chiffrés, passés à la main avec une petite poche plafonnée. N'augmente la poche que si le bilan des conseils reste positif, frais compris, sur plusieurs mois.
 3. **Phase 3, facultative** : passage d'ordres via l'API d'un courtier qui en propose une (Interactive Brokers, Saxo), avec garde-fous stricts et confirmation de ta part.
 
 ## Développement
