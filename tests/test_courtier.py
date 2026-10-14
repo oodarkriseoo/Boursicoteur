@@ -9,6 +9,14 @@ from test_boutons import FauxNotifieur, clic
 REGLAGES = {**DEFAUTS["courtier"], "type": "ibkr"}
 
 
+def action(symbole, place, devise):
+    return SimpleNamespace(symbol=symbole, exchange=place, currency=devise)
+
+
+def courtier(ib):
+    return Courtier(REGLAGES, lambda: ib, action)
+
+
 class FauxIB:
     def __init__(self, comptes=("DU123",)):
         self.comptes, self.ordres, self.deconnecte = list(comptes), [], False
@@ -73,7 +81,7 @@ def test_garde_fous():
 
 def test_ordre_bracket_sur_compte_demo():
     ib = faux()
-    r = Courtier(REGLAGES, lambda: ib).acheter("NVDA", 3, 101, 120, 90, 250, 0)
+    r = courtier(ib).acheter("NVDA", 3, 101, 120, 90, 250, 0)
     assert r.ok and "compte démo" in r.message
     assert [o[2].nom for o in ib.ordres] == ["achat", "objectif", "stop"]
     assert ib.ordres[0][2].tif == "DAY" and ib.ordres[2][2].tif == "GTC"
@@ -82,7 +90,7 @@ def test_ordre_bracket_sur_compte_demo():
 
 def test_compte_reel_refuse_tant_que_demo():
     ib = faux(("U999",))
-    r = Courtier(REGLAGES, lambda: ib).acheter("NVDA", 3, 101, 120, 90, 250, 0)
+    r = courtier(ib).acheter("NVDA", 3, 101, 120, 90, 250, 0)
     assert not r.ok and "Compte réel" in r.message and ib.ordres == []
 
 
@@ -99,21 +107,21 @@ def test_parcours_acheter_puis_confirmer():
     journal = Journal(":memory:")
     id_ = journal.ouvrir_conseil("NVDA", 100, 92, 116, 200, 2, quantite=2)
     ib = faux()
-    courtier = Courtier(REGLAGES, lambda: ib)
+    branche = courtier(ib)
 
     notif = NotifieurQuiEnvoie([clic(f"commande:{id_}")])
-    cli.traiter_clics(journal, notif, None, 1, courtier)
+    cli.traiter_clics(journal, notif, None, 1, branche)
     texte, boutons = notif.envois[0]
     assert "Acheter 2 NVDA via IBKR" in texte and boutons[0] == ("✔️ Confirmer", f"confirme:{id_}")
     assert ib.ordres == []  # rien ne part sans confirmation
 
     notif = NotifieurQuiEnvoie([clic(f"confirme:{id_}")])
-    cli.traiter_clics(journal, notif, None, 1, courtier)
+    cli.traiter_clics(journal, notif, None, 1, branche)
     assert len(ib.ordres) == 3 and "Ordre envoyé" in notif.accuses[0]
     assert journal.conseil(id_)["decision"] == "ibkr"
     assert journal.engage_ibkr() == 200
 
     # un second clic ne repasse pas l'ordre
     notif = NotifieurQuiEnvoie([clic(f"confirme:{id_}")])
-    cli.traiter_clics(journal, notif, None, 1, courtier)
+    cli.traiter_clics(journal, notif, None, 1, branche)
     assert len(ib.ordres) == 3 and "déjà traité" in notif.accuses[0]

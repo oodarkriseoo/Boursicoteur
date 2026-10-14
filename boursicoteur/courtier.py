@@ -45,9 +45,12 @@ class Resultat:
 
 
 class Courtier:
-    def __init__(self, reglages: dict[str, Any], fabrique_ib: Callable[[], Any] | None = None):
+    def __init__(self, reglages: dict[str, Any], fabrique_ib: Callable[[], Any] | None = None,
+                 fabrique_action: Callable[[str, str, str], Any] | None = None):
+        """Les fabriques permettent de tester sans ib_async ni IB Gateway."""
         self.reglages = reglages
         self._fabrique_ib = fabrique_ib
+        self._fabrique_action = fabrique_action
 
     @property
     def actif(self) -> bool:
@@ -82,9 +85,7 @@ class Courtier:
             comptes = list(ib.managedAccounts())
             if self.reglages.get("compte_demo", True) and not all(c.startswith("D") for c in comptes):
                 return Resultat(False, "Compte réel détecté alors que compte_demo est activé : aucun ordre passé.")
-            from ib_async import Stock
-
-            contrat = Stock(symbole, place, devise)
+            contrat = self._action(symbole, place, devise)
             if not ib.qualifyContracts(contrat):
                 return Resultat(False, f"IBKR ne reconnaît pas {symbole} sur {place}.")
             bracket = ib.bracketOrder("BUY", int(quantite), round(prix_max, 2), round(objectif, 2),
@@ -108,6 +109,13 @@ class Courtier:
                 ib.disconnect()
             except Exception:
                 pass
+
+    def _action(self, symbole: str, place: str, devise: str):
+        if self._fabrique_action:
+            return self._fabrique_action(symbole, place, devise)
+        from ib_async import Stock
+
+        return Stock(symbole, place, devise)
 
     def _ib(self):
         if self._fabrique_ib:
