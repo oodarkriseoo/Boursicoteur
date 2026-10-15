@@ -1,37 +1,49 @@
 import sqlite3
 
-from boursicoteur import cli
+from boursicoteur import cli, config as cfg, utilisateurs as usr
 from boursicoteur.journal import Journal
 from boursicoteur.notifications import Notifieur
 from conftest import serie
 
 
 class FauxNotifieur:
-    token = chat_id = "x"
+    token = chat_id = "x"  # « x » : la conversation de l'administrateur
 
-    def __init__(self, clics):
-        self._clics, self.accuses, self.envois = clics, [], []
+    def __init__(self, clics, messages=()):
+        self._clics, self._messages, self.accuses, self.envois = clics, list(messages), [], []
+        self.destinataires = []
 
-    def envoyer(self, texte, titre="", urgent=False, boutons=None):
+    def envoyer(self, texte, titre="", urgent=False, boutons=None, chat_id=None):
         self.envois.append((titre, texte))
+        self.destinataires.append(chat_id or self.chat_id)
 
-    def clics(self, offset, attente):
-        return self._clics, 42
+    def mises_a_jour(self, offset, attente):
+        return self._clics, self._messages, 42
 
     def accuser_clic(self, clic, confirmation, message=True, retirer=True):
         self.accuses.append(confirmation)
 
 
-def clic(data):
-    return {"id": "1", "data": data, "message": {"message_id": 7, "chat": {"id": "x"}}}
+def clic(data, chat="x"):
+    return {"id": "1", "data": data, "message": {"message_id": 7, "chat": {"id": chat}}}
+
+
+def journal_avec_admin(portefeuille=()):
+    journal = Journal(":memory:")
+    usr.preparer(journal, {"portefeuille": list(portefeuille)}, "x")
+    return journal
+
+
+CONF = cfg._fusionner(cfg.DEFAUTS, {})
 
 
 def test_boutons_enregistrent_la_decision_et_le_suivi():
     journal = Journal(":memory:")
     a = journal.ouvrir_conseil("A", 100, 90, 120, 200, 2)
     b = journal.ouvrir_conseil("B", 50, 45, 60, 100, 2)
+    usr.preparer(journal, {"portefeuille": []}, "x")  # les conseils d'avant reviennent à l'administrateur
     notif = FauxNotifieur([clic(f"achete:{a}"), clic(f"ignore:{b}"), clic("achete:999")])
-    assert cli.traiter_clics(journal, notif, None, 1) == 42
+    assert cli.traiter_mises_a_jour(CONF, journal, notif, None, 1) == 42
     assert journal.conseil(a)["decision"] == "achete"
     assert journal.conseil(b)["decision"] == "ignore"
     assert "Achat A noté" in notif.accuses[0] and "expiré" in notif.accuses[2]
@@ -85,7 +97,7 @@ def test_bouton_actus_recolte_a_la_demande_sans_ia():
 
     portefeuille = [{"ticker": "MC.PA", "nom": "LVMH"}, {"ticker": "SAN.PA", "nom": "Sanofi"}]
     notif = FauxNotifieur([clic("actus:portefeuille")])
-    cli.traiter_clics(Journal(":memory:"), notif, None, 1, portefeuille=portefeuille, collecter=collecter)
+    cli.traiter_mises_a_jour(CONF, journal_avec_admin(portefeuille), notif, None, 1, collecter=collecter)
     titre, texte = notif.envois[0]
     assert titre == "Actus de tes positions"
     assert "LVMH (MC.PA)" in texte and "https://ex.com/2" in texte

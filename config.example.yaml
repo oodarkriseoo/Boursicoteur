@@ -2,7 +2,10 @@
 # Les secrets (clés d'API, jetons) ne vont jamais ici : ils se lisent dans
 # les variables d'environnement nommées plus bas.
 
-# Tes positions actuelles. Le ticker est celui de Yahoo Finance
+# Tes positions actuelles. Lues une seule fois, à la première mise en route
+# du bot à plusieurs utilisateurs : ensuite elles se gèrent depuis Telegram
+# (/positions, /ajouter, /retirer, /stop) et cette liste n'est plus relue.
+# Le ticker est celui de Yahoo Finance
 # (suffixe .PA pour Paris, .AS pour Amsterdam, rien pour les US).
 # Le prix de revient est en euros. Pour une valeur cotée dans une autre
 # devise (actions US), ajoute « devise: USD » : il sera converti au taux du jour.
@@ -182,6 +185,19 @@ evenements:
     - https://www.war.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=400&Site=945&max=10
     - https://www.eia.gov/rss/todayinenergy.xml
 
+# Sources officielles, gratuites et sans clé, sur les sociétés suivies (thèmes,
+# positions et valeurs surveillées) : communiqués AMF des sociétés françaises
+# (toutes les 15 min), avis et autorisations de l'EMA, autorisations de la FDA,
+# essais de phase 3 terminés ou avec résultats (toutes les 6 h). Le premier
+# passage ne fait que noter l'existant ; chaque nouveauté est mesurée comme une news.
+officiels:
+  actives: true
+  amf: true
+  ema: true
+  fda: true
+  essais: true
+  alertes_max: 5              # par passage
+
 # Phase 2 : conseils d'achat et de vente chiffrés, que tu passes toi-même.
 # Chaque opportunité retenue reçoit un plan : prix maximum, stop, objectif et
 # montant calculé pour que la perte au stop reste près de risque_par_position_pct
@@ -235,6 +251,12 @@ notifications:
     chat_id_env: TELEGRAM_CHAT_ID
   ntfy:
     topic_env: NTFY_TOPIC     # ex. https://ntfy.sh/mon-sujet-secret
+
+# Plusieurs utilisateurs sur le même bot (voir README, « Partager le bot »).
+# Chacun gère son portefeuille et ses valeurs surveillées depuis Telegram ;
+# l'administrateur (TELEGRAM_CHAT_ID) accepte ou refuse chaque demande.
+utilisateurs:
+  max: 10                     # administrateur compris
 
 planification:
   intervalle_veille_min: 30   # fréquence des contrôles en mode boucle

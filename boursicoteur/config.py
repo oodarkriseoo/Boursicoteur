@@ -43,6 +43,7 @@ DEFAUTS: dict[str, Any] = {
             "https://www.eia.gov/rss/todayinenergy.xml",
         ],
     },
+    "officiels": {"actives": True, "amf": True, "ema": True, "fda": True, "essais": True, "alertes_max": 5},
     "conseils": {
         "actives": True,
         "poche_eur": 1000.0,
@@ -77,6 +78,7 @@ DEFAUTS: dict[str, Any] = {
         "telegram": {"token_env": "TELEGRAM_BOT_TOKEN", "chat_id_env": "TELEGRAM_CHAT_ID"},
         "ntfy": {"topic_env": "NTFY_TOPIC"},
     },
+    "utilisateurs": {"max": 10},  # personnes acceptées sur le bot, administrateur compris
     "planification": {"intervalle_veille_min": 30, "heure_resume": "08:00", "jour_bilan": 1},
     "base_de_donnees": "data/journal.sqlite",
 }

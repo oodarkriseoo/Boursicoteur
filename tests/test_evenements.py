@@ -11,10 +11,12 @@ VALEURS = {"SU.PA": "Électrification, ta position", "LLY": "Santé"}
 
 
 class Notif:
+    chat_id = ""  # sans Telegram : l'administrateur seul, sur la console
+
     def __init__(self):
         self.envois = []
 
-    def envoyer(self, texte, titre="", urgent=False, boutons=None):
+    def envoyer(self, texte, titre="", urgent=False, boutons=None, chat_id=None):
         self.envois.append((titre, texte, boutons))
 
 
@@ -77,7 +79,7 @@ def branche(monkeypatch):
 def test_evenements_notent_au_journal_et_alertent_au_dessus_du_seuil(conf, branche):
     journal, notif = Journal(":memory:"), Notif()
     cli.evenements(conf, journal, notif)
-    assert len(branche) == 1 and "SU.PA : ta position" in branche[0]
+    assert len(branche) == 1 and "SU.PA : valeur suivie" in branche[0]
     # les deux liens sont notés pour la mesure ; seul celui à 3/5 alerte
     lignes = journal.db.execute("SELECT lien, ticker, categories FROM catalyseurs ORDER BY ticker").fetchall()
     assert [(l["lien"], l["ticker"]) for l in lignes] == [("http://e/1#LLY", "LLY"), ("http://e/2#SU.PA", "SU.PA")]

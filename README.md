@@ -11,7 +11,8 @@ Outil de veille boursière qui tourne 24 h/24. Il suit tes positions (PEA, compt
 | `veille` | Alertes de chute : séance (puis à chaque palier de 3 points), chute rapide entre deux contrôles, passage sous ton seuil de sortie (`stop`), recul depuis le plus haut, perte par rapport à ton prix de revient, VIX élevé. Chaque alerte de chute rappelle ton écart au prix de revient, le plus bas des 20 dernières séances et la dernière actu. Les actus de tes positions ne sont plus envoyées d'office : le bouton « En savoir plus » sous le résumé les rassemble à la demande, liens compris. | Toutes les 30 min |
 | `opportunites` | Score sur 100 pour chaque valeur des thèmes suivis : catalyseur dans l'actu (partenariat, contrat, prise de participation, résultats relevés), dynamique, volume, accélération du jour. Claude affine la note du catalyseur. Au-dessus du seuil, alerte immédiate, notée au journal. | Toutes les 30 min |
 | `evenements` | Lit l'actualité mondiale et des sources officielles (FDA, Agence européenne du médicament, contrats du Pentagone, énergie). Claude relie chaque événement aux valeurs suivies, surtout les effets de second rang, avec la chaîne de cause à effet. Au-dessus de 3/5 de confiance, alerte : avec un plan d'achat chiffré et ses boutons si une hausse est attendue, avec un rappel de ton stop si une baisse touche une de tes positions. Chaque lien est noté au journal et mesuré. | Toutes les 5 min (Claude au plus tous les quarts d'heure) |
-| `portefeuille` | Valeur de chaque ligne en euros (devises converties au taux du jour), plus-value sur ton prix de revient, variation de la séance, poids dans son enveloppe et dans le total, puis les mêmes chiffres par enveloppe (PEA, CTO…). Signale une ligne qui dépasse 25 % du total. Une ligne sans cours (titre non coté) est comptée à son prix de revient et signalée. | À la demande, ou bouton « Détail du portefeuille » sous le résumé |
+| `officiels` | Sources officielles sur les sociétés suivies : communiqués réglementés des sociétés françaises (API info-financière de l'AMF), avis et autorisations de médicaments de l'EMA, autorisations de la FDA, essais de phase 3 terminés, arrêtés ou avec résultats (ClinicalTrials.gov). Gratuit et sans clé. Les sociétés sont reconnues par leur ISIN ou le nom du laboratoire grâce à l'annuaire FinanceDatabase. Chaque nouveauté part à ceux qui suivent la valeur et son effet est mesuré comme une news. Les déclarations répétitives (droits de vote, actions propres) sont écartées. | AMF toutes les 15 min, le reste toutes les 6 h |
+| `portefeuille` | Valeur de chaque ligne en euros (devises converties au taux du jour), plus-value sur ton prix de revient, variation de la séance, poids dans son enveloppe et dans le total, puis les mêmes chiffres par enveloppe (PEA, CTO…). Signale une ligne qui dépasse 25 % du total. Une ligne sans cours (titre non coté) est comptée à son prix de revient et signalée. Suit la comparaison avec l'ETF de référence sur 1 semaine, 1 mois, 3 mois, 1 an et depuis le début, avec les deux courbes des 30 derniers jours : la veille photographie la valeur chaque jour, versements et ventes retirés du calcul pour qu'un apport ne passe pas pour un gain. Le bilan mensuel reprend cette comparaison. | À la demande, ou bouton « Détail du portefeuille » sous le résumé |
 | `resume` | Valeur du portefeuille et de chaque enveloppe en tête, puis résumé du contexte, conseil sur chacune de tes positions (garder, alléger, prendre des gains, vendre), valeurs les mieux notées sur 100 dans chaque thème (avec la mention « PEA possible »), introductions en bourse à venir et dossiers déposés à la SEC, hypothèses notées au journal. | Chaque matin |
 | `bilan` | Évalue les hypothèses arrivées à échéance : taux de réussite, gain moyen, et comparaison avec l'ETF de référence. | Chaque mois |
 | `boucle` | Enchaîne tout automatiquement selon la section `planification` de la configuration. | En continu |
@@ -84,6 +85,37 @@ sudo systemctl enable --now boursicoteur
 journalctl -u boursicoteur -f
 ```
 
+## Partager le bot
+
+D'autres personnes peuvent utiliser ton bot, chacune avec son portefeuille et ses valeurs à surveiller. Elles écrivent au même bot Telegram (donne-leur son nom, `@ton_bot`) :
+
+1. Elles envoient `/start`. Tu reçois « X demande à utiliser le bot » avec **✅ Accepter** et **❌ Refuser**.
+2. Une fois acceptées, elles saisissent leurs positions et leurs valeurs depuis Telegram :
+
+| Commande | Effet |
+|---|---|
+| `/ajouter MC.PA 3 612,40 PEA LVMH` | Ajoute ou remplace une position : ticker Yahoo, quantité, prix de revient unitaire en euros, enveloppe (PEA, CTO… ; CTO par défaut), nom |
+| `/retirer MC.PA` | Retire une position |
+| `/stop MC.PA 580` | Seuil de sortie : alerte si le cours passe dessous (`0` l'enlève) |
+| `/positions`, `/portefeuille` | Positions enregistrées ; valeur et plus-value |
+| `/suivre ASML.AS SAF.PA` | Surveille des valeurs sans les détenir : alertes de chute et opportunités, et une rubrique « Tes valeurs surveillées » dans le résumé |
+| `/chercher defense france` | Trouve des valeurs par nom, secteur ou pays (annuaire FinanceDatabase, plus de 120 000 actions) : les plus grandes d'abord, cotées en euros ou en dollars, avec un bouton pour les surveiller |
+| `/oublier ASML.AS`, `/liste` | Ne plus surveiller ; voir la liste |
+| `/themes` | Liste les domaines suivis (IA, santé, électrification, défense…). Un bouton par domaine montre ses 10 valeurs les mieux notées du jour, permet de suivre ou non ce domaine et de surveiller ses 3 meilleures valeurs d'un clic. `/themes sante` va directement au détail |
+| `/poche 500` | Argent dédié aux conseils d'achat, qui fixe la taille des plans |
+| `/quitter` | Efface toutes ses données (après confirmation) |
+
+Ce qui est commun et ce qui est propre à chacun :
+- **Commun** : liste des thèmes et de leurs valeurs, seuils, sources, le résumé de Claude (un seul appel par jour pour tout le monde) et la lecture des actus non boursières. Un utilisateur de plus ne coûte presque rien en API : les appels à Claude ne sont pas répétés, leurs données grossissent juste un peu avec les valeurs de chacun.
+- **Propre à chacun** : positions, valeurs surveillées, alertes, conseils d'achat et leurs boutons, photo quotidienne et comparaison avec la référence, partie personnelle du bilan. Chacun choisit ses domaines avec `/themes` (tous par défaut) : il reçoit les opportunités et le classement du résumé de ces domaines, plus ce qui touche ses positions et ses valeurs surveillées. Les hypothèses du résumé suivent le même filtre.
+- **Réservé à l'administrateur** : les ordres via IBKR (c'est ton compte) et les messages ntfy. `/utilisateurs` liste qui utilise le bot (noms et nombre de lignes, sans le détail).
+
+À savoir :
+- **Tes positions passent dans la base.** À la première mise en route de cette version, le portefeuille de `config.yaml` devient celui de l'administrateur (ta conversation, `TELEGRAM_CHAT_ID`), avec tes conseils et ton historique de valeur. Ensuite, la liste `portefeuille` de `config.yaml` n'est plus relue : modifie tes positions avec les commandes ci-dessus.
+- **Confidentialité.** Les portefeuilles des autres sont stockés en clair dans `data/journal.sqlite` sur ton serveur : techniquement, tu peux les lire. Le message d'accueil le leur dit. Le bot ne répond qu'en conversation privée, jamais dans un groupe.
+- **Accès.** Personne n'entre sans ton accord ; `utilisateurs.max` (10 par défaut) borne le nombre de personnes, et au-delà de 5 demandes en attente les suivantes sont refusées d'office.
+- **Pas de conseil en investissement réglementé.** Le bot donne des alertes et des plans chiffrés, il ne connaît ni la situation ni les objectifs des autres. Pour des proches, c'est un outil partagé ; au-delà (abonnement payant, public), la réglementation sur le conseil en investissement s'appliquerait.
+
 ## Boutons Telegram et ordres via IBKR
 
 Chaque conseil d'achat arrive avec des boutons :
@@ -91,7 +123,7 @@ Chaque conseil d'achat arrive avec des boutons :
 - **❌ Ignorer** : le conseil est suivi en silence, pour que le bilan compte aussi ce que tu écartes.
 - **🛒 Acheter via IBKR** (si le courtier est branché) : le bot affiche un récapitulatif, puis **✔️ Confirmer** envoie à Interactive Brokers un achat à cours limité avec le stop et l'objectif attachés. IBKR les exécute même si ton serveur est éteint.
 
-Seul ton chat Telegram peut déclencher un bouton. Un ordre est refusé s'il dépasse `plafond_ordre_eur`, si la journée dépasse `plafond_jour_eur`, si le conseil a plus de 24 h, ou si un compte réel est connecté alors que `compte_demo` est vrai.
+Seuls les utilisateurs acceptés peuvent déclencher un bouton, chacun sur ses propres conseils ; les ordres IBKR sont réservés à l'administrateur. Un ordre est refusé s'il dépasse `plafond_ordre_eur`, si la journée dépasse `plafond_jour_eur`, si le conseil a plus de 24 h, ou si un compte réel est connecté alors que `compte_demo` est vrai.
 
 ### Ordres via IBKR
 

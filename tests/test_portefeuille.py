@@ -64,10 +64,79 @@ def test_resume_commence_par_la_valeur():
 
 
 def test_bouton_detail_du_portefeuille():
-    from test_boutons import FauxNotifieur, clic
+    from test_boutons import CONF, FauxNotifieur, clic, journal_avec_admin
 
     notif = FauxNotifieur([clic("valeur:portefeuille")])
-    cli.traiter_clics(Journal(":memory:"), notif, None, 1, portefeuille=POSITIONS,
-                      valoriser=lambda pos: ptf.valoriser(pos, HISTORIQUES, {"USD": 1.1}))
+    cli.traiter_mises_a_jour(CONF, journal_avec_admin(POSITIONS), notif, None, 1,
+                             valoriser=lambda pos: ptf.valoriser(pos, HISTORIQUES, {"USD": 1.1}))
     titre, texte = notif.envois[0]
     assert titre == "Ton portefeuille" and "Nvidia (NVDA)" in texte
+
+
+# --- historique de la valeur ----------------------------------------------------
+
+from datetime import date, timedelta
+
+
+def _photographier(journal, jour, positions, historiques, reference):
+    conf = {"portefeuille": positions, "reference": "REF"}
+    cli.noter_valeur(conf, journal, {**historiques, "REF": serie([reference])}, jour)
+
+
+def test_un_versement_ne_compte_pas_comme_un_gain():
+    journal = Journal(":memory:")
+    lvmh = {"ticker": "MC.PA", "enveloppe": "PEA", "quantite": 2, "prix_revient": 600.0}
+    _photographier(journal, date(2026, 10, 1), [lvmh], {"MC.PA": serie([600])}, 100)
+    # LVMH +10 %, référence +5 %
+    _photographier(journal, date(2026, 10, 2), [lvmh], {"MC.PA": serie([660])}, 105)
+    # achat de 2 LVMH de plus (versement de 1 320 €), cours inchangé
+    _photographier(journal, date(2026, 10, 3), [{**lvmh, "quantite": 4}], {"MC.PA": serie([660])}, 105)
+    # vente totale de LVMH au même cours, achat de Sanofi : ni gain ni perte
+    sanofi = {"ticker": "SAN.PA", "enveloppe": "PEA", "quantite": 30, "prix_revient": 88.0}
+    _photographier(journal, date(2026, 10, 4), [sanofi], {"SAN.PA": serie([88])}, 105)
+
+    photos = journal.photos()
+    assert [p["apport_eur"] for p in photos] == [0, 0, pytest.approx(1320), pytest.approx(2640 - 2640)]
+    serie_indices = ptf.indices(photos)
+    assert serie_indices[-1][1] == pytest.approx(1.10)
+    assert serie_indices[-1][2] == pytest.approx(1.05)
+
+
+def test_pas_de_photo_quand_un_cours_manque_soudain(monkeypatch):
+    monkeypatch.setattr(cli.src_cours, "historiques", lambda tickers, periode: {})  # Yahoo en panne
+    journal = Journal(":memory:")
+    lvmh = {"ticker": "MC.PA", "enveloppe": "PEA", "quantite": 2, "prix_revient": 600.0}
+    _photographier(journal, date(2026, 10, 1), [lvmh], {"MC.PA": serie([700])}, 100)
+    _photographier(journal, date(2026, 10, 2), [lvmh], {}, 100)  # Yahoo en panne
+    assert len(journal.photos()) == 1
+
+
+def test_la_derniere_photo_du_jour_l_emporte():
+    journal = Journal(":memory:")
+    lvmh = {"ticker": "MC.PA", "enveloppe": "PEA", "quantite": 1, "prix_revient": 600.0}
+    _photographier(journal, date(2026, 10, 1), [lvmh], {"MC.PA": serie([600])}, 100)
+    _photographier(journal, date(2026, 10, 1), [lvmh], {"MC.PA": serie([610])}, 100)
+    assert [p["valeur_eur"] for p in journal.photos()] == [610]
+
+
+def test_performance_par_periode_et_courbes():
+    journal = Journal(":memory:")
+    lvmh = {"ticker": "MC.PA", "enveloppe": "PEA", "quantite": 1, "prix_revient": 100.0}
+    debut = date(2026, 9, 1)
+    for i in range(44):
+        _photographier(journal, debut + timedelta(days=i), [lvmh], {"MC.PA": serie([100 + i])}, 100 + i / 2)
+    texte = ptf.formater_performance(journal.photos(), "CW8.PA", aujourd_hui=date(2026, 10, 14))
+    assert texte.startswith("📈 Face à CW8.PA (historique depuis le 01/09/2026)")
+    assert "• 1 semaine : toi +5.1 %, référence +3.0 %, écart +2.2 pts" in texte
+    assert "• 1 mois" in texte and "• 3 mois" not in texte
+    assert "• Depuis le début : toi +43.0 %, référence +21.5 %" in texte
+    toi = texte.split("Toi        ")[1].split("\n")[0]
+    assert len(toi) == 30 and toi.endswith("█") and "Référence  ▁" in texte
+
+
+def test_premier_jour_d_historique():
+    journal = Journal(":memory:")
+    lvmh = {"ticker": "MC.PA", "enveloppe": "PEA", "quantite": 1, "prix_revient": 100.0}
+    _photographier(journal, date(2026, 10, 14), [lvmh], {"MC.PA": serie([100])}, 100)
+    assert "apparaît dès demain" in ptf.formater_performance(journal.photos(), "CW8.PA")
+    assert ptf.formater_performance([], "CW8.PA") == ""
