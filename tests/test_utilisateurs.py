@@ -1,6 +1,6 @@
 import sqlite3
 
-from boursicoteur import cli, utilisateurs as usr
+from boursicoteur import cli, config as cfg, utilisateurs as usr
 from boursicoteur.journal import Journal
 from boursicoteur.notifications import Notifieur
 from conftest import serie
@@ -94,12 +94,45 @@ def test_alertes_envoyees_a_ceux_qui_detiennent_ou_surveillent(monkeypatch):
     assert len([t for t, _ in notif.envois[nombre:] if t == "Alerte"]) == 0  # pas de doublon
 
 
-def test_destinataires():
-    a = {"chat_id": "a", "portefeuille": [{"ticker": "X"}], "suivis": []}
-    b = {"chat_id": "b", "portefeuille": [], "suivis": ["Y"]}
-    assert usr.destinataires([a, b], "T", {"T"}) == [a, b]
-    assert usr.destinataires([a, b], "Y", {"T"}) == [b]
-    assert usr.destinataires([a, b], "Z", {"T"}) == []
+CONF_THEMES = cfg._fusionner(CONF, {"theme_ia": {"univers": ["NVDA"]},
+                                     "themes": {"sante": {"libelle": "Santé", "univers": ["SAN.PA", "LLY"]}}})
+
+
+def test_destinataires_selon_les_domaines_choisis():
+    a = {"chat_id": "a", "portefeuille": [{"ticker": "X"}], "suivis": [], "themes": None}  # tous les domaines
+    b = {"chat_id": "b", "portefeuille": [], "suivis": ["Y"], "themes": ["sante"]}
+    assert usr.destinataires([a, b], "LLY", CONF_THEMES) == [a, b]
+    assert usr.destinataires([a, b], "NVDA", CONF_THEMES) == [a]  # Bob ne suit pas l'IA
+    assert usr.destinataires([a, b], "Y", CONF_THEMES) == [b]
+    assert usr.destinataires([a, b], "Z", CONF_THEMES) == []
+
+
+def test_commande_themes_et_choix_des_domaines():
+    journal = journal_avec_admin()
+    journal.enregistrer_utilisateur({"chat_id": "b", "nom": "Bob", "statut": usr.ACTIF})
+    hausse = serie([100.0 + i for i in range(60)])
+
+    def faire(clics=(), messages=()):
+        notif = FauxNotifieur(list(clics), messages)
+        cli.traiter_mises_a_jour(CONF_THEMES, journal, notif, None, 1, collecter=lambda f, t: [],
+                                 telecharger=lambda tickers, periode: {t: hausse for t in tickers if t != "LLY"})
+        return notif
+
+    notif = faire(messages=[message("/themes")])
+    assert "🔔 IA : 1 valeurs" in notif.envois[0][1] and "🔔 Santé : 2 valeurs" in notif.envois[0][1]
+
+    notif = faire(clics=[clic("theme:sante", chat="b")])
+    texte = notif.envois[0][1]
+    assert "1. SAN.PA · PEA possible" in texte and "Sans cours aujourd'hui : LLY" in texte
+
+    faire(clics=[clic("interet:ia", chat="b")])  # Bob ne veut plus l'IA
+    assert journal.utilisateur("b")["themes"] == ["sante"]
+    assert "🔕 IA" in faire(messages=[message("/themes")]).envois[0][1]
+    faire(clics=[clic("interet:ia", chat="b")])  # retour à « tous »
+    assert journal.utilisateur("b")["themes"] is None
+
+    faire(clics=[clic("suivre:SAN.PA,PIRATE", chat="b")])
+    assert journal.utilisateur("b")["suivis"] == ["SAN.PA"]  # rien en dehors des thèmes
 
 
 def test_conf_de_utilise_la_poche_de_l_utilisateur():

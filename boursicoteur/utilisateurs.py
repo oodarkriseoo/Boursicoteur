@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from . import config as cfg
 from . import conseils as cons
 
 log = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ AIDE = """Commandes :
 /suivre TICKER… : surveiller des valeurs sans les détenir
 /oublier TICKER : ne plus surveiller
 /liste : valeurs surveillées
+/themes : domaines suivis (IA, santé, défense…), leurs valeurs les mieux notées,
+   et le choix de ceux qui t'intéressent
 /poche MONTANT : argent dédié aux conseils d'achat (taille des plans)
 /quitter : effacer toutes tes données
 
@@ -88,12 +91,33 @@ def tickers_de(u: dict) -> list[str]:
     return list(dict.fromkeys([p["ticker"] for p in u["portefeuille"]] + u["suivis"]))
 
 
-def destinataires(utilisateurs: list[dict], ticker: str, commun: set[str]) -> list[dict]:
-    """Qui prévenir pour une valeur : tout le monde si elle fait partie des thèmes
-    communs, sinon ceux qui la détiennent ou la surveillent."""
-    if ticker in commun:
-        return utilisateurs
-    return [u for u in utilisateurs if ticker in tickers_de(u)]
+def domaines_de(conf: dict[str, Any], u: dict) -> list[str]:
+    """Les thèmes (clés de config) qui intéressent l'utilisateur ; tous s'il n'a rien choisi."""
+    tous = [cle for cle, t in cfg.themes(conf).items() if t["univers"]]
+    return tous if u.get("themes") is None else [c for c in tous if c in u["themes"]]
+
+
+def visibles(conf: dict[str, Any], u: dict) -> set[str]:
+    """Valeurs sur lesquelles l'utilisateur reçoit opportunités et hypothèses :
+    celles de ses domaines, ses positions et ses valeurs surveillées."""
+    themes = cfg.themes(conf)
+    return {t for cle in domaines_de(conf, u) for t in themes[cle]["univers"]} | set(tickers_de(u))
+
+
+def destinataires(utilisateurs: list[dict], ticker: str, conf: dict[str, Any]) -> list[dict]:
+    """Qui prévenir pour une valeur : ceux dont un domaine la contient, et ceux
+    qui la détiennent ou la surveillent."""
+    return [u for u in utilisateurs if ticker in visibles(conf, u)]
+
+
+def basculer_domaine(journal, conf: dict[str, Any], u: dict, cle: str) -> bool:
+    """Ajoute ou retire un domaine ; renvoie True s'il est suivi après le clic."""
+    tous = [c for c, t in cfg.themes(conf).items() if t["univers"]]
+    suivis = domaines_de(conf, u)
+    suivis = [c for c in suivis if c != cle] if cle in suivis else suivis + [cle]
+    u["themes"] = None if set(suivis) == set(tous) else [c for c in tous if c in suivis]
+    journal.enregistrer_utilisateur(u)
+    return cle in suivis
 
 
 def _nombre(texte: str) -> float | None:

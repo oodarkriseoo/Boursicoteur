@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS utilisateurs (
     cree_le TEXT NOT NULL,
     portefeuille TEXT NOT NULL DEFAULT '[]',  -- JSON, mêmes champs que dans config.yaml
     suivis TEXT NOT NULL DEFAULT '[]',  -- JSON, tickers surveillés sans être détenus
-    poche_eur REAL  -- poche des conseils d'achat ; vide = celle de config.yaml
+    poche_eur REAL,  -- poche des conseils d'achat ; vide = celle de config.yaml
+    themes TEXT  -- JSON, domaines suivis parmi les thèmes de config.yaml ; vide = tous
 );
 CREATE TABLE IF NOT EXISTS hypotheses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,6 +122,8 @@ class Journal:
                                ("chat_id", "TEXT NOT NULL DEFAULT ''")):
             if colonne not in colonnes:
                 self.db.execute(f"ALTER TABLE conseils ADD COLUMN {colonne} {type_}")
+        if "themes" not in {l["name"] for l in self.db.execute("PRAGMA table_info(utilisateurs)")}:
+            self.db.execute("ALTER TABLE utilisateurs ADD COLUMN themes TEXT")
         # photos prises avant le passage à plusieurs utilisateurs : une seule par jour
         if "chat_id" not in {l["name"] for l in self.db.execute("PRAGMA table_info(valeurs_portefeuille)")}:
             self.db.executescript(
@@ -136,7 +139,8 @@ class Journal:
         if ligne is None:
             return None
         return {**dict(ligne), "portefeuille": json.loads(ligne["portefeuille"]),
-                "suivis": json.loads(ligne["suivis"])}
+                "suivis": json.loads(ligne["suivis"]),
+                "themes": json.loads(ligne["themes"]) if ligne["themes"] is not None else None}
 
     def utilisateurs(self, *statuts: str) -> list[dict]:
         lignes = self.db.execute("SELECT chat_id FROM utilisateurs ORDER BY cree_le").fetchall()
@@ -145,11 +149,11 @@ class Journal:
 
     def enregistrer_utilisateur(self, u: dict) -> None:
         self.db.execute(
-            "INSERT OR REPLACE INTO utilisateurs (chat_id, nom, statut, cree_le, portefeuille, suivis, poche_eur) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO utilisateurs (chat_id, nom, statut, cree_le, portefeuille, suivis, poche_eur, "
+            "themes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (str(u["chat_id"]), u["nom"], u["statut"], u.get("cree_le") or datetime.now().isoformat(timespec="seconds"),
              json.dumps(u.get("portefeuille") or [], ensure_ascii=False), json.dumps(u.get("suivis") or []),
-             u.get("poche_eur")),
+             u.get("poche_eur"), json.dumps(u["themes"]) if u.get("themes") is not None else None),
         )
         self.db.commit()
 

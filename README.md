@@ -99,12 +99,13 @@ D'autres personnes peuvent utiliser ton bot, chacune avec son portefeuille et se
 | `/positions`, `/portefeuille` | Positions enregistrées ; valeur et plus-value |
 | `/suivre ASML.AS SAF.PA` | Surveille des valeurs sans les détenir : alertes de chute et opportunités, et une rubrique « Tes valeurs surveillées » dans le résumé |
 | `/oublier ASML.AS`, `/liste` | Ne plus surveiller ; voir la liste |
+| `/themes` | Liste les domaines suivis (IA, santé, électrification, défense…). Un bouton par domaine montre ses 10 valeurs les mieux notées du jour, permet de suivre ou non ce domaine et de surveiller ses 3 meilleures valeurs d'un clic. `/themes sante` va directement au détail |
 | `/poche 500` | Argent dédié aux conseils d'achat, qui fixe la taille des plans |
 | `/quitter` | Efface toutes ses données (après confirmation) |
 
 Ce qui est commun et ce qui est propre à chacun :
-- **Commun** : thèmes suivis, seuils, sources, le résumé de Claude (un seul appel par jour pour tout le monde) et la lecture des actus non boursières. Un utilisateur de plus ne coûte presque rien en API : les appels à Claude ne sont pas répétés, leurs données grossissent juste un peu avec les valeurs de chacun.
-- **Propre à chacun** : positions, valeurs surveillées, alertes, conseils d'achat et leurs boutons, photo quotidienne et comparaison avec la référence, partie personnelle du bilan. Les opportunités des thèmes communs vont à tout le monde ; celles d'une valeur surveillée, seulement à ceux qui la suivent. Chacun ne voit dans le résumé que les hypothèses sur les thèmes communs et sur ses propres valeurs.
+- **Commun** : liste des thèmes et de leurs valeurs, seuils, sources, le résumé de Claude (un seul appel par jour pour tout le monde) et la lecture des actus non boursières. Un utilisateur de plus ne coûte presque rien en API : les appels à Claude ne sont pas répétés, leurs données grossissent juste un peu avec les valeurs de chacun.
+- **Propre à chacun** : positions, valeurs surveillées, alertes, conseils d'achat et leurs boutons, photo quotidienne et comparaison avec la référence, partie personnelle du bilan. Chacun choisit ses domaines avec `/themes` (tous par défaut) : il reçoit les opportunités et le classement du résumé de ces domaines, plus ce qui touche ses positions et ses valeurs surveillées. Les hypothèses du résumé suivent le même filtre.
 - **Réservé à l'administrateur** : les ordres via IBKR (c'est ton compte) et les messages ntfy. `/utilisateurs` liste qui utilise le bot (noms et nombre de lignes, sans le détail).
 
 À savoir :

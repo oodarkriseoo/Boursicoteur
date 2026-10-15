@@ -171,7 +171,6 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
     if not reglages["activee"]:
         return
     membres = utilisateurs(conf, journal, notifieur)
-    commun = set(cfg.univers_complet(conf))
     # les valeurs que chacun surveille passent par le même score que les thèmes
     univers = list(dict.fromkeys(cfg.univers_complet(conf) + [t for u in membres for t in u["suivis"]]))
     historiques = src_cours.historiques(univers + [conf["reference"], "EURUSD=X"], periode="6mo")
@@ -205,7 +204,7 @@ def opportunites(conf, journal: Journal, notifieur: Notifieur) -> None:
     for o in retenues[: reglages["alertes_max"]]:
         if not journal.alerte_inedite(f"opportunite:{o.ticker}", f"score {o.score}"):
             continue
-        for u in usr.destinataires(membres, o.ticker, commun):
+        for u in usr.destinataires(membres, o.ticker, conf):
             conf_u = usr.conf_de(conf, u)
             texte = opp.formater(o)
             plan, id_conseil = conseil_achat(conf_u, journal, o.ticker, historiques, eurusd, u)
@@ -249,7 +248,6 @@ def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None =
     etat["appels"] += 1
 
     membres = utilisateurs(conf, journal, notifieur)
-    commun = set(cfg.univers_complet(conf))
     valeurs = cfg.theme_de(conf)
     # un seul appel pour tous : les valeurs de chacun s'ajoutent à la liste, sans dire qui
     # les détient (le libellé figure dans l'alerte que d'autres utilisateurs peuvent recevoir)
@@ -286,7 +284,7 @@ def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None =
     for e in alertes[: reglages["alertes_max"]]:
         if not journal.alerte_inedite(f"evenement:{e.ticker}:{e.actu.lien}", e.chaine):
             continue
-        for u in usr.destinataires(membres, e.ticker, commun):
+        for u in usr.destinataires(membres, e.ticker, conf):
             conf_u = usr.conf_de(conf, u)
             texte, id_conseil = evt.formater(e), None
             if e.sens == "hausse":
@@ -399,9 +397,53 @@ def ticker_existe(ticker: str) -> bool:
     return ticker in src_cours.historiques([ticker], periode="5d")
 
 
+def liste_themes(conf, u: dict) -> tuple[str, list]:
+    """Les domaines suivis par le bot, avec un bouton par domaine pour voir ses valeurs."""
+    themes = {c: t for c, t in cfg.themes(conf).items() if t["univers"]}
+    siens = usr.domaines_de(conf, u)
+    lignes = [f"{'🔔' if cle in siens else '🔕'} {t['libelle']} : {len(t['univers'])} valeurs"
+              for cle, t in themes.items()]
+    texte = ("Domaines suivis par le bot. 🔔 : tu reçois leurs opportunités et leur classement "
+             "dans le résumé du matin" + (" (tous, tant que tu n'as rien choisi)" if u.get("themes") is None else "")
+             + ".\n\n" + "\n".join(lignes)
+             + "\n\nTouche un domaine pour voir ses valeurs les mieux notées aujourd'hui et choisir s'il t'intéresse.")
+    boutons = [(f"📊 {t['libelle']}", f"theme:{cle}") for cle, t in themes.items()]
+    return texte, [boutons[i:i + 2] for i in range(0, len(boutons), 2)]
+
+
+def detail_theme(conf, journal: Journal, u: dict, cle: str, telecharger=src_cours.historiques,
+                 collecter=src_actus.collecter, nombre: int = 10) -> tuple[str, list | None]:
+    """Valeurs d'un domaine classées par leur score du jour, avec les boutons
+    pour suivre le domaine et surveiller ses meilleures valeurs."""
+    theme = cfg.themes(conf).get(cle)
+    if not theme or not theme["univers"]:
+        return f"Domaine inconnu : {cle}. /themes pour la liste.", None
+    historiques = telecharger(theme["univers"], periode="6mo")
+    actus = collecter([], theme["univers"])
+    scores = opp.scorer(theme["univers"], historiques, actus, set(), conf["seuils"]["volume_inhabituel_x"],
+                        journal.effet_par_categorie())[:nombre]
+    lignes = []
+    for i, o in enumerate(scores, 1):
+        motifs = ([f"catalyseur {', '.join(o.catalyseurs)}"] if o.catalyseurs else []) + o.signaux[:3]
+        pea = " · PEA possible" if cons.enveloppe_de(o.ticker) == "PEA possible" else ""
+        lignes.append(f"{i}. {o.ticker}{pea} : {o.score}/100, {', '.join(motifs) or 'pas de signal fort'}")
+    sans_cours = [t for t in theme["univers"] if t not in historiques]
+    texte = (f"📊 {theme['libelle']} : valeurs les mieux notées aujourd'hui (score sur 100)\n"
+             + ("\n".join(lignes) or "Aucun cours disponible pour l'instant.")
+             + (f"\nSans cours aujourd'hui : {', '.join(sans_cours)}" if sans_cours else "")
+             + "\n\nUn score élevé veut dire un catalyseur récent confirmé par le marché, pas une "
+               "garantie de hausse. /suivre TICKER pour surveiller une valeur.")
+    suivi = cle in usr.domaines_de(conf, u)
+    boutons = [[("🔕 Ne plus suivre ce domaine" if suivi else "🔔 Suivre ce domaine", f"interet:{cle}")]]
+    meilleures = [o.ticker for o in scores[:3] if o.ticker not in u["suivis"]]
+    if meilleures:
+        boutons.append([(f"➕ Surveiller {', '.join(meilleures)}", f"suivre:{','.join(meilleures)}"[:64])])
+    return texte, boutons
+
+
 def traiter_mises_a_jour(conf, journal: Journal, notifieur: Notifieur, offset, attente: int,
                          courtier: Courtier | None = None, collecter=src_actus.collecter,
-                         valoriser=etat_portefeuille, valider=ticker_existe):
+                         valoriser=etat_portefeuille, valider=ticker_existe, telecharger=src_cours.historiques):
     """Traite les commandes texte de chaque utilisateur (/ajouter, /suivre…) et les
     boutons : accès au bot, actus et détail des positions, déjà acheté, ignorer,
     acheter via IBKR puis confirmer. Renvoie le nouvel offset Telegram."""
@@ -414,10 +456,19 @@ def traiter_mises_a_jour(conf, journal: Journal, notifieur: Notifieur, offset, a
             or auteur.get("username") or chat
         texte = message["text"]
         u = journal.utilisateur(chat)
-        if usr.est_actif(u) and texte.split()[:1] and texte.split()[0].split("@")[0].lower() == "/portefeuille":
+        mots = texte.split()
+        ordre = mots[0].split("@")[0].lower() if mots else ""
+        if usr.est_actif(u) and ordre == "/portefeuille":
             notifieur.envoyer(detail_portefeuille(valoriser(u["portefeuille"]), journal, conf["reference"], chat)
                               if u["portefeuille"] else "Aucune position : /ajouter pour commencer.",
                               titre="Ton portefeuille", chat_id=chat)
+            continue
+        if usr.est_actif(u) and ordre == "/themes":
+            if len(mots) > 1:
+                reponse, boutons = detail_theme(conf, journal, u, mots[1].lower(), telecharger, collecter)
+            else:
+                reponse, boutons = liste_themes(conf, u)
+            notifieur.envoyer(reponse, titre="", boutons=boutons, chat_id=chat)
             continue
         for destinataire, reponse, boutons in usr.commande(journal, chat, nom, texte, admin_id, valider,
                                                           conf["utilisateurs"]["max"]):
@@ -444,6 +495,29 @@ def traiter_mises_a_jour(conf, journal: Journal, notifieur: Notifieur, offset, a
                 notifieur.accuser_clic(clic, "🗑️ Tes données sont effacées. /start pour revenir.")
             else:
                 notifieur.accuser_clic(clic, "Rien n'a été effacé.")
+            continue
+        if action == "theme":
+            notifieur.accuser_clic(clic, "Je calcule les scores…", message=False, retirer=False)
+            reponse, boutons = detail_theme(conf, journal, u, id_texte, telecharger, collecter)
+            notifieur.envoyer(reponse, titre="", boutons=boutons, chat_id=chat)
+            continue
+        if action == "interet":
+            if id_texte in cfg.themes(conf):
+                libelle = cfg.themes(conf)[id_texte]["libelle"]
+                suivi = usr.basculer_domaine(journal, conf, u, id_texte)
+                notifieur.accuser_clic(clic, f"🔔 Tu suis {libelle}." if suivi else
+                                       f"🔕 Tu ne reçois plus les opportunités de {libelle}.")
+            else:
+                notifieur.accuser_clic(clic, "Domaine inconnu.")
+            continue
+        if action == "suivre":
+            # seules les valeurs des thèmes peuvent arriver par ce bouton
+            permis = set(cfg.univers_complet(conf))
+            ajouts = [t for t in id_texte.split(",") if t in permis and t not in u["suivis"]]
+            ajouts = ajouts[: max(0, usr.SUIVIS_MAX - len(u["suivis"]))]
+            u["suivis"] += ajouts
+            journal.enregistrer_utilisateur(u)
+            notifieur.accuser_clic(clic, f"➕ Surveillées : {', '.join(ajouts)}." if ajouts else "Rien à ajouter.")
             continue
         if action == "actus":
             # le bouton reste sous le résumé : chaque clic récolte des actus fraîches
@@ -498,7 +572,6 @@ def traiter_mises_a_jour(conf, journal: Journal, notifieur: Notifieur, offset, a
 def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     """Un seul appel à Claude pour tous, puis un résumé par utilisateur avec ses positions."""
     membres = utilisateurs(conf, journal, notifieur)
-    commun = set(cfg.univers_complet(conf)) | {conf["reference"]}
     tickers = list(dict.fromkeys([t for u in membres for t in usr.tickers_de(u)]
                                  + cfg.univers_complet(conf) + [conf["reference"]]))
     historiques = src_cours.historiques(tickers + [VIX], periode="2y")
@@ -543,9 +616,9 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
     journal.mesurer_catalyseurs({t: c for t in historiques if (c := _dernier(historiques, t)) is not None},
                                 reference)
     effets = journal.effet_par_categorie()
-    classement = {theme["libelle"]: opp.scorer(theme["univers"], historiques, actus, set(),
-                                               conf["seuils"]["volume_inhabituel_x"], effets)[: theme["pistes_max"]]
-                  for theme in themes.values() if theme["univers"]}
+    classement = {cle: opp.scorer(theme["univers"], historiques, actus, set(),
+                                  conf["seuils"]["volume_inhabituel_x"], effets)[: theme["pistes_max"]]
+                  for cle, theme in themes.items() if theme["univers"]}
     taux = {"USD": _dernier(src_cours.historiques(["EURUSD=X"], periode="5d"), "EURUSD=X")}
     for u in membres:
         conf_u = usr.conf_de(conf, u)
@@ -553,12 +626,14 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
                 for p, a in avis_portefeuille(conf_u, historiques, taux)]
         avis += thermometre(conf_u, historiques)
         valeur = ptf.synthese(etat_portefeuille(u["portefeuille"], historiques)) if u["portefeuille"] else []
-        siens = classement
+        # chacun voit le classement de ses domaines (/themes) et de ses valeurs surveillées
+        siens = {themes[cle]["libelle"]: classement[cle] for cle in usr.domaines_de(conf, u)}
         if u["suivis"]:
             siens = {**classement, "Tes valeurs surveillées": opp.scorer(
                 u["suivis"], historiques, actus, set(), conf["seuils"]["volume_inhabituel_x"], effets)}
-        # chacun ne voit que les hypothèses sur les thèmes communs et sur ses propres valeurs
-        visibles = [h for h in hypotheses if h.ticker in commun or h.ticker in usr.tickers_de(u)]
+        # chacun ne voit que les hypothèses sur ses domaines et sur ses propres valeurs
+        vues = usr.visibles(conf, u) | {conf["reference"]}
+        visibles = [h for h in hypotheses if h.ticker in vues]
         notifieur.envoyer(
             formater_resume(contexte, siens, visibles, intros_a_suivre, avis, valeur),
             titre=f"Résumé du {date.today():%d/%m/%Y}",
@@ -766,6 +841,7 @@ COMMANDES_TELEGRAM = [
     ("suivre", "TICKER… : surveiller sans détenir"),
     ("oublier", "TICKER : ne plus surveiller"),
     ("liste", "Valeurs surveillées"),
+    ("themes", "Domaines suivis et leurs meilleures valeurs"),
     ("poche", "MONTANT : argent dédié aux conseils d'achat"),
     ("aide", "Toutes les commandes"),
     ("quitter", "Effacer tes données"),
