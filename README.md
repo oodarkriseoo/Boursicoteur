@@ -84,6 +84,35 @@ sudo systemctl enable --now boursicoteur
 journalctl -u boursicoteur -f
 ```
 
+## Partager le bot
+
+D'autres personnes peuvent utiliser ton bot, chacune avec son portefeuille et ses valeurs à surveiller. Elles écrivent au même bot Telegram (donne-leur son nom, `@ton_bot`) :
+
+1. Elles envoient `/start`. Tu reçois « X demande à utiliser le bot » avec **✅ Accepter** et **❌ Refuser**.
+2. Une fois acceptées, elles saisissent leurs positions et leurs valeurs depuis Telegram :
+
+| Commande | Effet |
+|---|---|
+| `/ajouter MC.PA 3 612,40 PEA LVMH` | Ajoute ou remplace une position : ticker Yahoo, quantité, prix de revient unitaire en euros, enveloppe (PEA, CTO… ; CTO par défaut), nom |
+| `/retirer MC.PA` | Retire une position |
+| `/stop MC.PA 580` | Seuil de sortie : alerte si le cours passe dessous (`0` l'enlève) |
+| `/positions`, `/portefeuille` | Positions enregistrées ; valeur et plus-value |
+| `/suivre ASML.AS SAF.PA` | Surveille des valeurs sans les détenir : alertes de chute et opportunités, et une rubrique « Tes valeurs surveillées » dans le résumé |
+| `/oublier ASML.AS`, `/liste` | Ne plus surveiller ; voir la liste |
+| `/poche 500` | Argent dédié aux conseils d'achat, qui fixe la taille des plans |
+| `/quitter` | Efface toutes ses données (après confirmation) |
+
+Ce qui est commun et ce qui est propre à chacun :
+- **Commun** : thèmes suivis, seuils, sources, le résumé de Claude (un seul appel par jour pour tout le monde) et la lecture des actus non boursières. Un utilisateur de plus ne coûte presque rien en API : les appels à Claude ne sont pas répétés, leurs données grossissent juste un peu avec les valeurs de chacun.
+- **Propre à chacun** : positions, valeurs surveillées, alertes, conseils d'achat et leurs boutons, photo quotidienne et comparaison avec la référence, partie personnelle du bilan. Les opportunités des thèmes communs vont à tout le monde ; celles d'une valeur surveillée, seulement à ceux qui la suivent. Chacun ne voit dans le résumé que les hypothèses sur les thèmes communs et sur ses propres valeurs.
+- **Réservé à l'administrateur** : les ordres via IBKR (c'est ton compte) et les messages ntfy. `/utilisateurs` liste qui utilise le bot (noms et nombre de lignes, sans le détail).
+
+À savoir :
+- **Tes positions passent dans la base.** À la première mise en route de cette version, le portefeuille de `config.yaml` devient celui de l'administrateur (ta conversation, `TELEGRAM_CHAT_ID`), avec tes conseils et ton historique de valeur. Ensuite, la liste `portefeuille` de `config.yaml` n'est plus relue : modifie tes positions avec les commandes ci-dessus.
+- **Confidentialité.** Les portefeuilles des autres sont stockés en clair dans `data/journal.sqlite` sur ton serveur : techniquement, tu peux les lire. Le message d'accueil le leur dit. Le bot ne répond qu'en conversation privée, jamais dans un groupe.
+- **Accès.** Personne n'entre sans ton accord ; `utilisateurs.max` (10 par défaut) borne le nombre de personnes, et au-delà de 5 demandes en attente les suivantes sont refusées d'office.
+- **Pas de conseil en investissement réglementé.** Le bot donne des alertes et des plans chiffrés, il ne connaît ni la situation ni les objectifs des autres. Pour des proches, c'est un outil partagé ; au-delà (abonnement payant, public), la réglementation sur le conseil en investissement s'appliquerait.
+
 ## Boutons Telegram et ordres via IBKR
 
 Chaque conseil d'achat arrive avec des boutons :
@@ -91,7 +120,7 @@ Chaque conseil d'achat arrive avec des boutons :
 - **❌ Ignorer** : le conseil est suivi en silence, pour que le bilan compte aussi ce que tu écartes.
 - **🛒 Acheter via IBKR** (si le courtier est branché) : le bot affiche un récapitulatif, puis **✔️ Confirmer** envoie à Interactive Brokers un achat à cours limité avec le stop et l'objectif attachés. IBKR les exécute même si ton serveur est éteint.
 
-Seul ton chat Telegram peut déclencher un bouton. Un ordre est refusé s'il dépasse `plafond_ordre_eur`, si la journée dépasse `plafond_jour_eur`, si le conseil a plus de 24 h, ou si un compte réel est connecté alors que `compte_demo` est vrai.
+Seuls les utilisateurs acceptés peuvent déclencher un bouton, chacun sur ses propres conseils ; les ordres IBKR sont réservés à l'administrateur. Un ordre est refusé s'il dépasse `plafond_ordre_eur`, si la journée dépasse `plafond_jour_eur`, si le conseil a plus de 24 h, ou si un compte réel est connecté alors que `compte_demo` est vrai.
 
 ### Ordres via IBKR
 

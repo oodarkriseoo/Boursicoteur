@@ -64,11 +64,11 @@ def test_resume_commence_par_la_valeur():
 
 
 def test_bouton_detail_du_portefeuille():
-    from test_boutons import FauxNotifieur, clic
+    from test_boutons import CONF, FauxNotifieur, clic, journal_avec_admin
 
     notif = FauxNotifieur([clic("valeur:portefeuille")])
-    cli.traiter_clics(Journal(":memory:"), notif, None, 1, portefeuille=POSITIONS,
-                      valoriser=lambda pos: ptf.valoriser(pos, HISTORIQUES, {"USD": 1.1}))
+    cli.traiter_mises_a_jour(CONF, journal_avec_admin(POSITIONS), notif, None, 1,
+                             valoriser=lambda pos: ptf.valoriser(pos, HISTORIQUES, {"USD": 1.1}))
     titre, texte = notif.envois[0]
     assert titre == "Ton portefeuille" and "Nvidia (NVDA)" in texte
 

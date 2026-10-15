@@ -4,7 +4,7 @@ from boursicoteur import cli
 from boursicoteur.config import DEFAUTS
 from boursicoteur.courtier import Courtier, contrat_ibkr
 from boursicoteur.journal import Journal
-from test_boutons import FauxNotifieur, clic
+from test_boutons import CONF, FauxNotifieur, clic, journal_avec_admin
 
 REGLAGES = {**DEFAUTS["courtier"], "type": "ibkr"}
 
@@ -99,29 +99,29 @@ class NotifieurQuiEnvoie(FauxNotifieur):
         super().__init__(clics)
         self.envois = []
 
-    def envoyer(self, texte, titre="", urgent=False, boutons=None):
+    def envoyer(self, texte, titre="", urgent=False, boutons=None, chat_id=None):
         self.envois.append((texte, boutons))
 
 
 def test_parcours_acheter_puis_confirmer():
-    journal = Journal(":memory:")
-    id_ = journal.ouvrir_conseil("NVDA", 100, 92, 116, 200, 2, quantite=2)
+    journal = journal_avec_admin()
+    id_ = journal.ouvrir_conseil("NVDA", 100, 92, 116, 200, 2, quantite=2, chat_id="x")
     ib = faux()
     branche = courtier(ib)
 
     notif = NotifieurQuiEnvoie([clic(f"commande:{id_}")])
-    cli.traiter_clics(journal, notif, None, 1, branche)
+    cli.traiter_mises_a_jour(CONF, journal, notif, None, 1, branche)
     texte, boutons = notif.envois[0]
     assert "Acheter 2 NVDA via IBKR" in texte and boutons[0] == ("✔️ Confirmer", f"confirme:{id_}")
     assert ib.ordres == []  # rien ne part sans confirmation
 
     notif = NotifieurQuiEnvoie([clic(f"confirme:{id_}")])
-    cli.traiter_clics(journal, notif, None, 1, branche)
+    cli.traiter_mises_a_jour(CONF, journal, notif, None, 1, branche)
     assert len(ib.ordres) == 3 and "Ordre envoyé" in notif.accuses[0]
     assert journal.conseil(id_)["decision"] == "ibkr"
     assert journal.engage_ibkr() == 200
 
     # un second clic ne repasse pas l'ordre
     notif = NotifieurQuiEnvoie([clic(f"confirme:{id_}")])
-    cli.traiter_clics(journal, notif, None, 1, branche)
+    cli.traiter_mises_a_jour(CONF, journal, notif, None, 1, branche)
     assert len(ib.ordres) == 3 and "déjà traité" in notif.accuses[0]

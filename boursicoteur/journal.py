@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS conseils (
     cours_final REAL,
     decision TEXT,  -- achete, ignore ou ibkr (ordre passé par le bot), sinon inconnue
     decide_le TEXT,
-    quantite REAL
+    quantite REAL,
+    chat_id TEXT NOT NULL DEFAULT ''  -- utilisateur à qui le conseil a été donné
 );
 CREATE TABLE IF NOT EXISTS catalyseurs (
     lien TEXT PRIMARY KEY,
@@ -58,11 +59,22 @@ CREATE TABLE IF NOT EXISTS catalyseurs (
     ecart_4s REAL
 );
 CREATE TABLE IF NOT EXISTS valeurs_portefeuille (
-    jour TEXT PRIMARY KEY,  -- une photo par jour, la dernière de la journée l'emporte
+    chat_id TEXT NOT NULL DEFAULT '',
+    jour TEXT NOT NULL,  -- une photo par jour, la dernière de la journée l'emporte
     valeur_eur REAL NOT NULL,
     apport_eur REAL NOT NULL,  -- argent ajouté (+) ou retiré (−) depuis la photo de la veille
     reference REAL NOT NULL,  -- cours de l'ETF de référence au même moment
-    lignes TEXT NOT NULL  -- JSON ticker → [quantité, prix en €, coté ?]
+    lignes TEXT NOT NULL,  -- JSON ticker → [quantité, prix en €, coté ?]
+    PRIMARY KEY (chat_id, jour)
+);
+CREATE TABLE IF NOT EXISTS utilisateurs (
+    chat_id TEXT PRIMARY KEY,  -- conversation Telegram
+    nom TEXT NOT NULL,
+    statut TEXT NOT NULL,  -- admin, actif, en_attente ou refuse
+    cree_le TEXT NOT NULL,
+    portefeuille TEXT NOT NULL DEFAULT '[]',  -- JSON, mêmes champs que dans config.yaml
+    suivis TEXT NOT NULL DEFAULT '[]',  -- JSON, tickers surveillés sans être détenus
+    poche_eur REAL  -- poche des conseils d'achat ; vide = celle de config.yaml
 );
 CREATE TABLE IF NOT EXISTS hypotheses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,9 +117,53 @@ class Journal:
         self.db.executescript(SCHEMA)
         # bases créées avant les boutons Telegram
         colonnes = {l["name"] for l in self.db.execute("PRAGMA table_info(conseils)")}
-        for colonne, type_ in (("decision", "TEXT"), ("decide_le", "TEXT"), ("quantite", "REAL")):
+        for colonne, type_ in (("decision", "TEXT"), ("decide_le", "TEXT"), ("quantite", "REAL"),
+                               ("chat_id", "TEXT NOT NULL DEFAULT ''")):
             if colonne not in colonnes:
                 self.db.execute(f"ALTER TABLE conseils ADD COLUMN {colonne} {type_}")
+        # photos prises avant le passage à plusieurs utilisateurs : une seule par jour
+        if "chat_id" not in {l["name"] for l in self.db.execute("PRAGMA table_info(valeurs_portefeuille)")}:
+            self.db.executescript(
+                "ALTER TABLE valeurs_portefeuille RENAME TO valeurs_portefeuille_avant;" + SCHEMA +
+                "INSERT INTO valeurs_portefeuille (jour, valeur_eur, apport_eur, reference, lignes) "
+                "SELECT jour, valeur_eur, apport_eur, reference, lignes FROM valeurs_portefeuille_avant;"
+                "DROP TABLE valeurs_portefeuille_avant;")
+        self.db.commit()
+
+    # --- utilisateurs --------------------------------------------------------
+    def utilisateur(self, chat_id: str) -> dict | None:
+        ligne = self.db.execute("SELECT * FROM utilisateurs WHERE chat_id = ?", (str(chat_id),)).fetchone()
+        if ligne is None:
+            return None
+        return {**dict(ligne), "portefeuille": json.loads(ligne["portefeuille"]),
+                "suivis": json.loads(ligne["suivis"])}
+
+    def utilisateurs(self, *statuts: str) -> list[dict]:
+        lignes = self.db.execute("SELECT chat_id FROM utilisateurs ORDER BY cree_le").fetchall()
+        tous = [self.utilisateur(l["chat_id"]) for l in lignes]
+        return [u for u in tous if not statuts or u["statut"] in statuts]
+
+    def enregistrer_utilisateur(self, u: dict) -> None:
+        self.db.execute(
+            "INSERT OR REPLACE INTO utilisateurs (chat_id, nom, statut, cree_le, portefeuille, suivis, poche_eur) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (str(u["chat_id"]), u["nom"], u["statut"], u.get("cree_le") or datetime.now().isoformat(timespec="seconds"),
+             json.dumps(u.get("portefeuille") or [], ensure_ascii=False), json.dumps(u.get("suivis") or []),
+             u.get("poche_eur")),
+        )
+        self.db.commit()
+
+    def oublier_utilisateur(self, chat_id: str) -> None:
+        """Efface tout ce qui appartient à cet utilisateur : réglages, conseils, photos."""
+        for table in ("utilisateurs", "conseils", "valeurs_portefeuille"):
+            self.db.execute(f"DELETE FROM {table} WHERE chat_id = ?", (str(chat_id),))
+        self.db.execute("DELETE FROM alertes WHERE cle LIKE ?", (f"{chat_id}:%",))
+        self.db.commit()
+
+    def attribuer(self, chat_id: str) -> None:
+        """Donne à ``chat_id`` les conseils et photos d'avant les utilisateurs (sans propriétaire)."""
+        for table in ("conseils", "valeurs_portefeuille"):
+            self.db.execute(f"UPDATE {table} SET chat_id = ? WHERE chat_id = ''", (str(chat_id),))
         self.db.commit()
 
     # --- actus -------------------------------------------------------------
@@ -164,42 +220,47 @@ class Journal:
 
     # --- valeur du portefeuille ------------------------------------------------
     def photographier(self, jour: date, valeur_eur: float, apport_eur: float, reference: float,
-                      lignes: dict[str, list]) -> None:
+                      lignes: dict[str, list], chat_id: str = "") -> None:
         self.db.execute(
-            "INSERT OR REPLACE INTO valeurs_portefeuille (jour, valeur_eur, apport_eur, reference, lignes) "
-            "VALUES (?, ?, ?, ?, ?)", (jour.isoformat(), valeur_eur, apport_eur, reference, json.dumps(lignes)),
+            "INSERT OR REPLACE INTO valeurs_portefeuille (chat_id, jour, valeur_eur, apport_eur, reference, lignes) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (str(chat_id), jour.isoformat(), valeur_eur, apport_eur, reference, json.dumps(lignes)),
         )
         self.db.commit()
 
-    def photo_avant(self, jour: date) -> dict | None:
+    def photo_avant(self, jour: date, chat_id: str = "") -> dict | None:
         """Dernière photo d'un jour antérieur, lignes décodées."""
-        ligne = self.db.execute("SELECT * FROM valeurs_portefeuille WHERE jour < ? ORDER BY jour DESC LIMIT 1",
-                                (jour.isoformat(),)).fetchone()
+        ligne = self.db.execute("SELECT * FROM valeurs_portefeuille WHERE chat_id = ? AND jour < ? "
+                                "ORDER BY jour DESC LIMIT 1", (str(chat_id), jour.isoformat())).fetchone()
         return {**dict(ligne), "lignes": json.loads(ligne["lignes"])} if ligne else None
 
-    def photos(self) -> list[sqlite3.Row]:
+    def photos(self, chat_id: str = "") -> list[sqlite3.Row]:
         return self.db.execute("SELECT jour, valeur_eur, apport_eur, reference FROM valeurs_portefeuille "
-                               "ORDER BY jour").fetchall()
+                               "WHERE chat_id = ? ORDER BY jour", (str(chat_id),)).fetchall()
 
     # --- conseils d'achat (phase 2) -------------------------------------------
     def ouvrir_conseil(self, ticker: str, cours: float, stop: float, objectif: float,
                        montant_eur: float, frais_eur: float, le: datetime | None = None,
-                       quantite: float | None = None) -> int | None:
-        """Note un conseil d'achat ; None s'il y en a déjà un en cours sur ce ticker."""
-        if self.db.execute("SELECT 1 FROM conseils WHERE ticker = ? AND statut = 'ouvert'",
-                           (ticker,)).fetchone():
+                       quantite: float | None = None, chat_id: str = "") -> int | None:
+        """Note un conseil d'achat ; None si cet utilisateur en a déjà un en cours sur ce ticker."""
+        if self.db.execute("SELECT 1 FROM conseils WHERE ticker = ? AND statut = 'ouvert' AND chat_id = ?",
+                           (ticker, str(chat_id))).fetchone():
             return None
         cur = self.db.execute(
             """INSERT INTO conseils (cree_le, ticker, cours, stop, objectif, montant_eur, frais_eur,
-                   quantite) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   quantite, chat_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             ((le or datetime.now()).isoformat(timespec="seconds"), ticker, cours, stop, objectif,
-             montant_eur, frais_eur, quantite),
+             montant_eur, frais_eur, quantite, str(chat_id)),
         )
         self.db.commit()
         return int(cur.lastrowid)
 
-    def conseils_ouverts(self) -> list[sqlite3.Row]:
-        return self.db.execute("SELECT * FROM conseils WHERE statut = 'ouvert'").fetchall()
+    def conseils_ouverts(self, chat_id: str | None = None) -> list[sqlite3.Row]:
+        """Conseils en cours d'un utilisateur, ou de tous si ``chat_id`` est None."""
+        if chat_id is None:
+            return self.db.execute("SELECT * FROM conseils WHERE statut = 'ouvert'").fetchall()
+        return self.db.execute("SELECT * FROM conseils WHERE statut = 'ouvert' AND chat_id = ?",
+                               (str(chat_id),)).fetchall()
 
     def clore_conseil(self, id_: int, statut: str, cours_final: float, le: date | None = None) -> None:
         self.db.execute(
@@ -225,10 +286,12 @@ class Journal:
         ).fetchone()
         return float(ligne[0])
 
-    def bilan_conseils(self) -> dict[str, float | int | None]:
+    def bilan_conseils(self, chat_id: str | None = None) -> dict[str, float | int | None]:
         """Résultat des conseils clos, comme si chacun avait été suivi à la lettre."""
-        ouverts = len(self.conseils_ouverts())
-        lignes = self.db.execute("SELECT * FROM conseils WHERE statut != 'ouvert'").fetchall()
+        ouverts = len(self.conseils_ouverts(chat_id))
+        lignes = self.db.execute(
+            "SELECT * FROM conseils WHERE statut != 'ouvert'" + (" AND chat_id = ?" if chat_id is not None else ""),
+            (str(chat_id),) if chat_id is not None else ()).fetchall()
         if not lignes:
             return {"clos": 0, "ouverts": ouverts, "gagnants_pct": None, "gain_net_eur": None,
                     "suivis": 0, "gain_net_suivis_eur": None}
