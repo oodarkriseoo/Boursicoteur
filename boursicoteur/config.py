@@ -43,6 +43,7 @@ DEFAUTS: dict[str, Any] = {
             "https://www.eia.gov/rss/todayinenergy.xml",
         ],
     },
+    "officiels": {"actives": True, "amf": True, "ema": True, "fda": True, "essais": True, "alertes_max": 5},
     "conseils": {
         "actives": True,
         "poche_eur": 1000.0,

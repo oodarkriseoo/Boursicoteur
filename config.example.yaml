@@ -185,6 +185,19 @@ evenements:
     - https://www.war.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=400&Site=945&max=10
     - https://www.eia.gov/rss/todayinenergy.xml
 
+# Sources officielles, gratuites et sans clé, sur les sociétés suivies (thèmes,
+# positions et valeurs surveillées) : communiqués AMF des sociétés françaises
+# (toutes les 15 min), avis et autorisations de l'EMA, autorisations de la FDA,
+# essais de phase 3 terminés ou avec résultats (toutes les 6 h). Le premier
+# passage ne fait que noter l'existant ; chaque nouveauté est mesurée comme une news.
+officiels:
+  actives: true
+  amf: true
+  ema: true
+  fda: true
+  essais: true
+  alertes_max: 5              # par passage
+
 # Phase 2 : conseils d'achat et de vente chiffrés, que tu passes toi-même.
 # Chaque opportunité retenue reçoit un plan : prix maximum, stop, objectif et
 # montant calculé pour que la perte au stop reste près de risque_par_position_pct

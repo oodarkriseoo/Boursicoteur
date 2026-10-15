@@ -3,6 +3,7 @@
 Commandes :
   veille  contrôle rapide (alertes de chute, conseils sur tes positions)
   opportunites  repère les valeurs de chaque thème portées par un catalyseur frais, score sur 100
+  officiels  communiqués AMF, autorisations EMA et FDA, essais cliniques des sociétés suivies
   evenements  relie l'actu non boursière (monde, santé, défense, énergie) aux valeurs suivies
   portefeuille  valeur, plus-value et poids de chaque ligne et de chaque enveloppe
   resume  résumé quotidien : contexte, pistes par thème, introductions, hypothèses
@@ -27,6 +28,7 @@ from . import evenements as evt
 from .courtier import Courtier, contrat_ibkr
 from . import hypotheses as hyp
 from . import memoire
+from . import officiels as off
 from . import opportunites as opp
 from . import portefeuille as ptf
 from . import risque as rsq
@@ -302,6 +304,59 @@ def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None =
 def ibkr_pour(conf, u: dict | None) -> bool:
     """Le courtier branché ne sert qu'à l'administrateur : c'est son compte."""
     return (u is None or u["statut"] == usr.ADMIN) and Courtier(conf["courtier"]).actif
+
+
+CADENCES_OFFICIELS = {"amf": 15, "ema": 360, "fda": 360, "essais": 360}  # minutes entre deux lectures
+
+
+def officiels(conf, journal: Journal, notifieur: Notifieur, etat: dict | None = None) -> None:
+    """Sources officielles sur les sociétés suivies (thèmes, positions et valeurs
+    surveillées de chacun) : communiqués AMF, autorisations de médicaments EMA et
+    FDA, essais de phase 3. Chaque nouveauté est mesurée comme une news et
+    envoyée à ceux qui suivent la valeur. ``etat`` espace les lectures."""
+    reglages = conf["officiels"]
+    if not reglages["actives"]:
+        return
+    etat = {} if etat is None else etat
+    membres = utilisateurs(conf, journal, notifieur)
+    tickers = dict.fromkeys(cfg.univers_complet(conf) + [t for u in membres for t in usr.tickers_de(u)])
+    societes = {t: s for t in tickers if (s := annuaire.societe(t))}
+    sante = set((cfg.themes(conf).get("sante") or {}).get("univers", []))
+    isins = {s.isin: t for t, s in societes.items() if s.isin.startswith("FR")}
+    laboratoires = {annuaire.cle(s.nom): t for t, s in societes.items()
+                    if s.secteur == "Health Care" or t in sante}
+    sources = {
+        "amf": lambda: off.amf(isins, date.today() - timedelta(days=1)),
+        "ema": lambda: off.ema(laboratoires),
+        "fda": lambda: off.fda(laboratoires),
+        "essais": lambda: off.essais(laboratoires),
+    }
+    faits = []
+    for nom, lire in sources.items():
+        if not reglages[nom] or time.monotonic() < etat.get(nom, 0):
+            continue
+        etat[nom] = time.monotonic() + CADENCES_OFFICIELS[nom] * 60
+        try:
+            trouves = lire()
+        except Exception as exc:
+            log.warning("Source officielle %s indisponible : %s", nom, type(exc).__name__)
+            continue
+        # premier passage : tout est noté comme vu, sans alerte, pour ne pas envoyer l'historique
+        premiere = bool(journal.liens_inconnus([f"off-init:{nom}"]))
+        nouveaux = journal.nouvelles_actus([f"off:{f.cle}" for f in trouves])
+        journal.nouvelles_actus([f"off-init:{nom}"])
+        if not premiere:
+            faits += [f for f in trouves if f"off:{f.cle}" in nouveaux]
+    if not faits:
+        return
+    historiques = src_cours.historiques(list({f.ticker for f in faits}) + [conf["reference"]], periode="5d")
+    reference = _dernier(historiques, conf["reference"])
+    for f in faits[: reglages["alertes_max"]]:
+        cours = _dernier(historiques, f.ticker)
+        if cours is not None:
+            journal.noter_catalyseur(f"off:{f.cle}", f.ticker, [f.categorie], f.titre, cours, reference)
+        for u in usr.destinataires(membres, f.ticker, conf):
+            notifieur.envoyer(off.formater(f), titre="Source officielle", chat_id=u["chat_id"])
 
 
 def boutons_conseil(conf, ticker, id_conseil, u: dict | None = None):
@@ -792,6 +847,7 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
     dernier_resume = dernier_bilan = None
     offset = None
     etat_evenements: dict = {}
+    etat_officiels: dict = {}
     pas_evenements = int(conf["evenements"]["intervalle_min"]) * 60
     prochains_evenements = time.monotonic()
     log.info("Boucle démarrée : veille toutes les %s min.", plan["intervalle_veille_min"])
@@ -813,6 +869,7 @@ def boucle(conf, journal: Journal, notifieur: Notifieur) -> None:
         while (reste := fin - time.monotonic()) > 0:
             if time.monotonic() >= prochains_evenements:
                 _proteger("evenements", evenements, conf, journal, notifieur, etat_evenements)
+                _proteger("officiels", officiels, conf, journal, notifieur, etat_officiels)
                 prochains_evenements = time.monotonic() + pas_evenements
                 continue
             attente = max(1, min(50, reste, prochains_evenements - time.monotonic()))
@@ -851,7 +908,7 @@ COMMANDES_TELEGRAM = [
     ("quitter", "Effacer tes données"),
 ]
 
-COMMANDES = {"veille": veille, "opportunites": opportunites, "evenements": evenements,
+COMMANDES = {"veille": veille, "opportunites": opportunites, "evenements": evenements, "officiels": officiels,
              "portefeuille": portefeuille, "resume": resume,
              "bilan": bilan, "boucle": boucle}
 
