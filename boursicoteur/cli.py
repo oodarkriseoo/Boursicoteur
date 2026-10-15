@@ -20,6 +20,7 @@ import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from . import annuaire
 from . import config as cfg
 from . import conseils as cons
 from . import evenements as evt
@@ -426,7 +427,9 @@ def detail_theme(conf, journal: Journal, u: dict, cle: str, telecharger=src_cour
     for i, o in enumerate(scores, 1):
         motifs = ([f"catalyseur {', '.join(o.catalyseurs)}"] if o.catalyseurs else []) + o.signaux[:3]
         pea = " · PEA possible" if cons.enveloppe_de(o.ticker) == "PEA possible" else ""
-        lignes.append(f"{i}. {o.ticker}{pea} : {o.score}/100, {', '.join(motifs) or 'pas de signal fort'}")
+        nom = annuaire.nom(o.ticker)
+        lignes.append(f"{i}. {nom + ' (' + o.ticker + ')' if nom != o.ticker else o.ticker}{pea} : "
+                      f"{o.score}/100, {', '.join(motifs) or 'pas de signal fort'}")
     sans_cours = [t for t in theme["univers"] if t not in historiques]
     texte = (f"📊 {theme['libelle']} : valeurs les mieux notées aujourd'hui (score sur 100)\n"
              + ("\n".join(lignes) or "Aucun cours disponible pour l'instant.")
@@ -511,9 +514,9 @@ def traiter_mises_a_jour(conf, journal: Journal, notifieur: Notifieur, offset, a
                 notifieur.accuser_clic(clic, "Domaine inconnu.")
             continue
         if action == "suivre":
-            # seules les valeurs des thèmes peuvent arriver par ce bouton
+            # seules les valeurs des thèmes ou de l'annuaire peuvent arriver par ce bouton
             permis = set(cfg.univers_complet(conf))
-            ajouts = [t for t in id_texte.split(",") if t in permis and t not in u["suivis"]]
+            ajouts = [t for t in id_texte.split(",") if (t in permis or annuaire.societe(t)) and t not in u["suivis"]]
             ajouts = ajouts[: max(0, usr.SUIVIS_MAX - len(u["suivis"]))]
             u["suivis"] += ajouts
             journal.enregistrer_utilisateur(u)
@@ -838,6 +841,7 @@ COMMANDES_TELEGRAM = [
     ("ajouter", "TICKER QUANTITÉ PRIX [PEA|CTO] [nom]"),
     ("retirer", "TICKER : retirer une position"),
     ("stop", "TICKER PRIX : seuil de sortie"),
+    ("chercher", "MOTS : valeurs par nom, secteur ou pays"),
     ("suivre", "TICKER… : surveiller sans détenir"),
     ("oublier", "TICKER : ne plus surveiller"),
     ("liste", "Valeurs surveillées"),

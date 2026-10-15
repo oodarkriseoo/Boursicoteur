@@ -123,7 +123,7 @@ def test_commande_themes_et_choix_des_domaines():
 
     notif = faire(clics=[clic("theme:sante", chat="b")])
     texte = notif.envois[0][1]
-    assert "1. SAN.PA · PEA possible" in texte and "Sans cours aujourd'hui : LLY" in texte
+    assert "1. Sanofi (SAN.PA) · PEA possible" in texte and "Sans cours aujourd'hui : LLY" in texte
 
     faire(clics=[clic("interet:ia", chat="b")])  # Bob ne veut plus l'IA
     assert journal.utilisateur("b")["themes"] == ["sante"]
@@ -196,3 +196,19 @@ def test_envoi_vers_un_autre_utilisateur_sans_ntfy(monkeypatch):
     assert len(envois) == 1 and envois[0][1]["json"]["chat_id"] == "456"
     n.envoyer("texte")
     assert len(envois) == 3  # l'administrateur reçoit aussi ntfy
+
+
+def test_chercher_par_secteur_et_pays():
+    from boursicoteur import annuaire
+
+    assert [s.ticker for s in annuaire.chercher("defense france")] == ["SAF.PA", "HO.PA"]  # une cotation par société
+    assert [s.ticker for s in annuaire.chercher("pharmacie usa")] == ["LLY"]
+    assert annuaire.nom("LLY") == "Eli Lilly" and annuaire.cle("Eli Lilly and Company") == "eli lilly"
+
+    journal = journal_avec_admin()
+    notif = traiter(journal, messages=[message("/chercher defense france", chat="x")])
+    texte = notif.envois[0][1]
+    assert "SAF.PA : Safran, Aerospace & Defense, France" in texte
+    traiter(journal, clics=[clic("suivre:HO.PA")])
+    assert journal.utilisateur("x")["suivis"] == ["HO.PA"]
+    assert "Thales (HO.PA)" in traiter(journal, messages=[message("/liste", chat="x")]).envois[0][1]

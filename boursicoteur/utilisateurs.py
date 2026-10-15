@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from . import annuaire
 from . import config as cfg
 from . import conseils as cons
 
@@ -36,6 +37,8 @@ AIDE = """Commandes :
    Un ticker déjà présent dans la même enveloppe est remplacé.
 /retirer TICKER [enveloppe]
 /stop TICKER PRIX : alerte si le cours passe sous ce prix (0 pour l'enlever)
+/chercher MOTS : trouver des valeurs par nom, secteur ou pays
+   ex. /chercher defense france, /chercher luxe, /chercher nvidia
 /suivre TICKER… : surveiller des valeurs sans les détenir
 /oublier TICKER : ne plus surveiller
 /liste : valeurs surveillées
@@ -194,7 +197,7 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
         if not valider(ticker):
             return dire(f"Pas de cours pour {ticker} sur Yahoo Finance. Vérifie le suffixe de la place "
                         "(MC.PA pour Paris, ASML.AS pour Amsterdam, rien pour les US).")
-        position = {"ticker": ticker, "nom": " ".join(reste) or ticker, "enveloppe": enveloppe,
+        position = {"ticker": ticker, "nom": " ".join(reste) or annuaire.nom(ticker), "enveloppe": enveloppe,
                     "quantite": quantite, "prix_revient": prix}
         if cons.devise_de(ticker) != "EUR":
             position["devise"] = cons.devise_de(ticker)
@@ -268,8 +271,23 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
     if ordre == "liste":
         if not u["suivis"]:
             return dire("Aucune valeur surveillée en dehors de tes positions. Ajoute-en avec /suivre TICKER")
-        return dire("Valeurs surveillées : " + ", ".join(u["suivis"]) +
+        return dire("Valeurs surveillées : " + ", ".join(f"{annuaire.nom(t)} ({t})" if annuaire.nom(t) != t else t
+                                                        for t in u["suivis"]) +
                     "\nTu reçois sur elles les alertes de chute et les opportunités, comme sur tes positions.")
+
+    if ordre == "chercher":
+        if not args:
+            return dire("Usage : /chercher MOTS, par exemple /chercher defense france ou /chercher luxe")
+        trouvees = annuaire.chercher(" ".join(args))
+        if not trouvees:
+            return dire("Rien trouvé. Essaie un nom (sanofi), un secteur (defense, banques, luxe, sante, "
+                        "semi-conducteurs, energie…) et un pays (france, allemagne, usa, europe).")
+        lignes = [f"• {s.ticker} : {annuaire.court(s.nom)}, {s.industrie or s.secteur or '?'}, {s.pays}"
+                  + (f", {s.taille.lower()}" if s.taille else "") for s in trouvees]
+        boutons = [[(f"➕ {s.ticker}", f"suivre:{s.ticker}") for s in trouvees[i:i + 3]]
+                   for i in range(0, len(trouvees), 3)]
+        return dire("Les plus grandes sociétés trouvées (cotées en euros ou en dollars) :\n" + "\n".join(lignes)
+                    + "\n\nTouche ➕ pour la surveiller, ou /ajouter si tu la détiens.", boutons)
 
     if ordre == "poche":
         montant = _nombre(args[0]) if args else None

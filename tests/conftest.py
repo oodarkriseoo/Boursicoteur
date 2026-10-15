@@ -17,3 +17,24 @@ def hausse():
 @pytest.fixture
 def baisse():
     return serie(list(np.linspace(160, 100, 80)))
+
+
+@pytest.fixture(autouse=True)
+def annuaire_hors_ligne(monkeypatch):
+    """Petit annuaire fixe : les tests ne téléchargent pas FinanceDatabase."""
+    from boursicoteur import annuaire
+
+    base = pd.DataFrame(
+        [["Sanofi", "Health Care", "Health Care", "Pharmaceuticals", "PAR", "France", "FR0000120578", "Large Cap", False],
+         ["Safran SA", "Industrials", "Capital Goods", "Aerospace & Defense", "PAR", "France", "FR0000073272",
+          "Large Cap", False],
+         ["Safran SA", "Industrials", "Capital Goods", "Aerospace & Defense", "FRA", "France", "FR0000073272",
+          "Large Cap", False],
+         ["Thales S.A.", "Industrials", "Capital Goods", "Aerospace & Defense", "PAR", "France", "FR0000121329",
+          "Large Cap", False],
+         ["Eli Lilly and Company", "Health Care", "Health Care", "Pharmaceuticals", "NYQ", "United States",
+          "US5324571083", "Mega Cap", False]],
+        index=pd.Index(["SAN.PA", "SAF.PA", "SEJ1.F", "HO.PA", "LLY"], name="symbol"),
+        columns=["name", "sector", "industry_group", "industry", "exchange", "country", "isin", "market_cap",
+                 "delisted"])
+    monkeypatch.setattr(annuaire, "_base", base)
