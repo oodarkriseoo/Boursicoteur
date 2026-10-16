@@ -25,6 +25,7 @@ from . import annuaire
 from . import config as cfg
 from . import conseils as cons
 from . import evenements as evt
+from . import garde_fous as gf
 from .courtier import Courtier, contrat_ibkr
 from . import hypotheses as hyp
 from . import memoire
@@ -92,6 +93,9 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
             lignes_surveillees(u), historiques, conf["seuils"], {d: t for d, t in taux.items() if t},
             precedents, titres,
         ) + marche
+        # stop suiveur, poids d'un titre, recul du portefeuille, éligibilité PEA
+        alertes += gf.alertes(conf_u, historiques, {d: t for d, t in taux.items() if t},
+                              etat_portefeuille(u["portefeuille"], historiques))
         for alerte in alertes:
             jour = date.min if alerte.unique else None
             if journal.alerte_inedite(usr.cle_alerte(u, alerte.cle), alerte.message, jour):
@@ -683,7 +687,9 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
         avis = [cons.formater_avis(a, p.get("nom", a.ticker))
                 for p, a in avis_portefeuille(conf_u, historiques, taux)]
         avis += thermometre(conf_u, historiques)
-        valeur = ptf.synthese(etat_portefeuille(u["portefeuille"], historiques)) if u["portefeuille"] else []
+        etat = etat_portefeuille(u["portefeuille"], historiques) if u["portefeuille"] else None
+        valeur = ptf.synthese(etat) if etat else []
+        garde_fous = gf.synthese(conf_u, historiques, {d: t for d, t in taux.items() if t}, etat)
         # chacun voit le classement de ses domaines (/themes) et de ses valeurs surveillées
         siens = {themes[cle]["libelle"]: classement[cle] for cle in usr.domaines_de(conf, u)}
         if u["suivis"]:
@@ -693,7 +699,7 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
         vues = usr.visibles(conf, u) | {conf["reference"]}
         visibles = [h for h in hypotheses if h.ticker in vues]
         notifieur.envoyer(
-            formater_resume(contexte, siens, visibles, intros_a_suivre, avis, valeur),
+            formater_resume(contexte, siens, visibles, intros_a_suivre, avis, valeur, garde_fous),
             titre=f"Résumé du {date.today():%d/%m/%Y}",
             boutons=[[BOUTON_PORTEFEUILLE], [BOUTON_ACTUS]] if u["portefeuille"] else None,
             chat_id=u["chat_id"],
@@ -724,7 +730,7 @@ def secteurs(conf) -> dict[str, str]:
 
 
 def formater_resume(contexte, classement: dict[str, list], hypotheses, intros_a_suivre, avis=(),
-                    valeur=()) -> str:
+                    valeur=(), garde_fous=()) -> str:
     parties = []
     if valeur:
         parties += list(valeur) + [""]
@@ -732,6 +738,10 @@ def formater_resume(contexte, classement: dict[str, list], hypotheses, intros_a_
     if avis:
         parties.append("📋 Conseils sur tes positions")
         parties += list(avis)
+        parties.append("")
+    if garde_fous:
+        parties.append("🛡️ Garde-fous")
+        parties += list(garde_fous)
         parties.append("")
     parties.append("💎 Valeurs les mieux notées par thème (score sur 100)")
     if any(classement.values()):
@@ -898,6 +908,8 @@ COMMANDES_TELEGRAM = [
     ("ajouter", "TICKER QUANTITÉ PRIX [PEA|CTO] [nom]"),
     ("retirer", "TICKER : retirer une position"),
     ("stop", "TICKER PRIX : seuil de sortie"),
+    ("suiveur", "TICKER POURCENT : stop suiveur"),
+    ("etf", "TICKER : marquer un ETF (hors plafond par titre)"),
     ("chercher", "MOTS : valeurs par nom, secteur ou pays"),
     ("suivre", "TICKER… : surveiller sans détenir"),
     ("oublier", "TICKER : ne plus surveiller"),

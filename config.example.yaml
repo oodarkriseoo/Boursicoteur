@@ -13,18 +13,26 @@
 # sont de long terme : le bot propose de les réévaluer au lieu de les vendre.
 # Facultatif : « stop: 95.0 » (dans la devise de cotation) envoie une alerte
 # dès que le cours passe sous ce niveau, ta règle de sortie décidée à froid.
+# Facultatif : « suiveur_pct: 12 » pose un stop suiveur : alerte si le cours
+# recule de 12 % depuis son plus haut atteint depuis l'achat (« achat_le:
+# 2025-03-14 ») ou, sans date, sur 6 mois. Le niveau du jour figure dans le
+# résumé, pour remonter l'ordre stop chez ton courtier.
+# « diversifie: true » pour un ETF : il échappe au plafond de poids par titre.
 portefeuille:
   - ticker: CW8.PA
     nom: Amundi MSCI World (PEA)
     enveloppe: PEA
     quantite: 5
     prix_revient: 520.0
+    diversifie: true
   - ticker: NVDA
     nom: Nvidia
     enveloppe: CTO
     quantite: 3
     prix_revient: 120.0
     stop: 100.0
+    suiveur_pct: 15
+    achat_le: 2025-03-14
 
 # Référence pour juger l'outil : est-ce qu'il fait mieux que garder cet ETF ?
 reference: CW8.PA
@@ -39,6 +47,8 @@ seuils:
   perte_vs_prix_revient_pct: 20 # alerte si une position est à -20 % de ton prix de revient
   vix_alerte: 30              # alerte si l'indice de peur (VIX) dépasse 30
   volume_inhabituel_x: 3      # signal si le volume du jour vaut 3 fois la moyenne sur 20 jours
+  concentration_max_pct: 25   # alerte si un seul titre (hors ETF) dépasse 25 % de ton portefeuille
+  drawdown_alerte_pct: 10     # alerte si tout le portefeuille recule de 10 % depuis son plus haut sur un an
 
 # Module « pépites IA » : l'univers surveillé. Ajoute ou retire librement.
 theme_ia:

@@ -37,6 +37,9 @@ AIDE = """Commandes :
    Un ticker déjà présent dans la même enveloppe est remplacé.
 /retirer TICKER [enveloppe]
 /stop TICKER PRIX : alerte si le cours passe sous ce prix (0 pour l'enlever)
+/suiveur TICKER POURCENT : stop suiveur, alerte si le cours recule de ce
+   pourcentage depuis son plus haut (0 pour l'enlever), ex. /suiveur MC.PA 12
+/etf TICKER : marque un ETF, exempté du plafond de poids par titre (bascule)
 /chercher MOTS : trouver des valeurs par nom, secteur ou pays
    ex. /chercher defense france, /chercher luxe, /chercher nvidia
 /suivre TICKER… : surveiller des valeurs sans les détenir
@@ -132,6 +135,10 @@ def _nombre(texte: str) -> float | None:
 
 def _ligne(p: dict) -> str:
     extras = [f"stop {p['stop']:g}"] if p.get("stop") else []
+    if p.get("suiveur_pct"):
+        extras.append(f"stop suiveur {p['suiveur_pct']:g} %")
+    if p.get("diversifie"):
+        extras.append("ETF")
     if p.get("devise", "EUR") != "EUR":
         extras.append(f"coté en {p['devise']}")
     return (f"• {p.get('nom', p['ticker'])} ({p['ticker']}), {p.get('enveloppe', '?')} : "
@@ -202,8 +209,11 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
         if cons.devise_de(ticker) != "EUR":
             position["devise"] = cons.devise_de(ticker)
         anciennes = [p for p in u["portefeuille"] if (p["ticker"], p.get("enveloppe")) == (ticker, enveloppe)]
-        if anciennes and anciennes[0].get("stop"):
-            position["stop"] = anciennes[0]["stop"]
+        if anciennes:
+            # les réglages de la ligne survivent à la mise à jour de la quantité
+            for cle in ("stop", "suiveur_pct", "achat_le", "diversifie"):
+                if anciennes[0].get(cle):
+                    position[cle] = anciennes[0][cle]
         autres = [p for p in u["portefeuille"] if p not in anciennes]
         if len(autres) >= POSITIONS_MAX:
             return dire(f"{POSITIONS_MAX} positions au plus.")
@@ -239,6 +249,40 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
                 p.pop("stop", None)
         journal.enregistrer_utilisateur(u)
         return dire(f"Seuil de sortie de {ticker} : {prix:g}." if prix else f"Seuil de sortie de {ticker} enlevé.")
+
+    if ordre == "suiveur":
+        pct = _nombre(args[1].replace("%", "")) if len(args) > 1 else None
+        if pct is None or not 0 <= pct < 100:
+            return dire("Usage : /suiveur TICKER POURCENT (ex. /suiveur MC.PA 12 ; 0 pour l'enlever)")
+        ticker = args[0].upper()
+        visees = [p for p in u["portefeuille"] if p["ticker"] == ticker]
+        if not visees:
+            return dire(f"{ticker} n'est pas dans tes positions.")
+        for p in visees:
+            if pct:
+                p["suiveur_pct"] = pct
+            else:
+                p.pop("suiveur_pct", None)
+        journal.enregistrer_utilisateur(u)
+        if not pct:
+            return dire(f"Stop suiveur de {ticker} enlevé.")
+        return dire(f"Stop suiveur de {ticker} : alerte à -{pct:g} % de son plus haut des 6 derniers mois. "
+                    "Le niveau du jour figure dans le résumé du matin.")
+
+    if ordre == "etf":
+        ticker = args[0].upper() if args else ""
+        visees = [p for p in u["portefeuille"] if p["ticker"] == ticker]
+        if not visees:
+            return dire("Usage : /etf TICKER (une de tes positions)")
+        etf = not visees[0].get("diversifie")
+        for p in visees:
+            if etf:
+                p["diversifie"] = True
+            else:
+                p.pop("diversifie", None)
+        journal.enregistrer_utilisateur(u)
+        return dire(f"{ticker} marqué comme ETF : il échappe au plafond de poids par titre." if etf
+                    else f"{ticker} n'est plus marqué comme ETF.")
 
     if ordre == "suivre":
         if not args:

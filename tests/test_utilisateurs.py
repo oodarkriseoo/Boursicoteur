@@ -212,3 +212,20 @@ def test_chercher_par_secteur_et_pays():
     traiter(journal, clics=[clic("suivre:HO.PA")])
     assert journal.utilisateur("x")["suivis"] == ["HO.PA"]
     assert "Thales (HO.PA)" in traiter(journal, messages=[message("/liste", chat="x")]).envois[0][1]
+
+
+def test_stop_suiveur_et_etf_par_commande():
+    journal = journal_avec_admin([{"ticker": "CW8.PA", "quantite": 1, "prix_revient": 500, "enveloppe": "PEA"}])
+    notif = traiter(journal, messages=[
+        message("/suiveur CW8.PA 12", chat="x"),
+        message("/etf CW8.PA", chat="x"),
+        message("/ajouter CW8.PA 2 510 PEA", chat="x"),  # la mise à jour garde les réglages
+        message("/suiveur NVDA 10", chat="x"),
+        message("/suiveur CW8.PA 0", chat="x"),
+    ])
+    textes = [t for _, t in notif.envois]
+    assert "-12 %" in textes[0] and "marqué comme ETF" in textes[1]
+    assert "stop suiveur 12 %, ETF" in textes[2]
+    assert "n'est pas dans tes positions" in textes[3]
+    (ligne,) = journal.utilisateur("x")["portefeuille"]
+    assert ligne["diversifie"] and "suiveur_pct" not in ligne and ligne["quantite"] == 2

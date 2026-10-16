@@ -77,3 +77,15 @@ def test_position_pea_de_long_terme_a_reevaluer_plutot_que_vendre(baisse):
     # choix explicite : horizon court même dans le PEA
     assert cons.avis_position({"ticker": "MC.PA", "enveloppe": "PEA", "horizon": "court"},
                               baisse, 160).action == "vendre"
+
+
+def test_baisse_de_fond_ne_donne_pas_garder():
+    # deux ans de baisse puis un palier : MM20 et MM50 neutres, mais sous une MM200 qui baisse
+    longue = list(np.linspace(200, 120, 420)) + [120 + (1 if i % 2 else -1) for i in range(80)]
+    hist = serie(longue)
+    assert cons._avis_technique({"ticker": "MC.PA"}, hist, 160).action == "alléger"
+    avis = cons.avis_position({"ticker": "MC.PA", "enveloppe": "PEA"}, hist, 160)
+    assert avis.action == "réévaluer"
+    assert any("moyenne 200 jours" in r for r in avis.raisons)
+    # historique trop court pour la MM200 : on reste sur la règle courte
+    assert cons.avis_position({"ticker": "A"}, zigzag(100, 110), 100).action == "garder"
