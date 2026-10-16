@@ -153,7 +153,7 @@ def _avis_technique(position: dict[str, Any], hist: pd.DataFrame,
     if position.get("stop"):
         stop_suiveur = max(stop_suiveur, float(position["stop"]))
     gain = (cours / prix_revient - 1) * 100 if prix_revient else None
-    sens = ind.tendance(hist)
+    sens = ind.tendance(hist)  # courte : MM20 et MM50
     niveau_rsi = ind.rsi(hist)
     mm50 = ind.moyenne_mobile(hist, 50)
 
@@ -172,10 +172,35 @@ def _avis_technique(position: dict[str, Any], hist: pd.DataFrame,
         if gain is not None:
             raisons.append(f"{gain:+.0f} % sur ton prix de revient")
         return Avis(ticker, "alléger", raisons, stop_suiveur)
-    raisons = [f"tendance {sens}"]
+    fond = tendance_de_fond_baissiere(hist)
+    if fond:
+        raisons = [fond]
+        if gain is not None:
+            raisons.append(f"{gain:+.0f} % sur ton prix de revient")
+        return Avis(ticker, "alléger", raisons, stop_suiveur)
+    raisons = [f"tendance {sens} sur 1 à 2 mois"]
     if gain is not None:
         raisons.append(f"{gain:+.0f} % sur ton prix de revient")
     return Avis(ticker, "garder", raisons, stop_suiveur)
+
+
+def tendance_de_fond_baissiere(hist: pd.DataFrame) -> str | None:
+    """Raison lisible si le cours est sous une moyenne 200 jours elle-même en
+    baisse depuis un mois : une baisse de fond, que les moyennes 20 et 50 jours
+    ne voient plus quand le titre se stabilise à un niveau bas. None sinon."""
+    cloture = hist["Close"].dropna()
+    if len(cloture) < 221:
+        return None
+    mm200 = float(cloture.iloc[-200:].mean())
+    mm200_avant = float(cloture.iloc[-221:-21].mean())
+    cours = float(cloture.iloc[-1])
+    if cours >= mm200 or mm200 >= mm200_avant:
+        return None
+    raison = "sous la moyenne 200 jours, elle-même en baisse"
+    sur_un_an = ind.variation_sur_pct(hist, 252)
+    if sur_un_an is not None:
+        raison += f" ({sur_un_an:+.0f} % sur 1 an)"
+    return raison
 
 
 def formater_avis(avis: Avis, nom: str) -> str:
