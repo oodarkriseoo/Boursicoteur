@@ -81,7 +81,7 @@ DEFAUTS: dict[str, Any] = {
         "ntfy": {"topic_env": "NTFY_TOPIC"},
     },
     "utilisateurs": {"max": 10},  # personnes acceptées sur le bot, administrateur compris
-    "planification": {"intervalle_veille_min": 30, "heure_resume": "08:00", "jour_bilan": 1},
+    "planification": {"intervalle_veille_min": 30, "heure_resume": "08:00", "resume_quotidien": False, "jour_bilan": 1},
     "base_de_donnees": "data/journal.sqlite",
 }
 

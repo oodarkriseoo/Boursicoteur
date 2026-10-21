@@ -531,6 +531,14 @@ def traiter_mises_a_jour(conf, journal: Journal, notifieur: Notifieur, offset, a
                               if u["portefeuille"] else "Aucune position : /ajouter pour commencer.",
                               titre="Ton portefeuille", chat_id=chat)
             continue
+        if usr.est_actif(u) and ordre == "/resume":
+            dernier = journal.etat(f"resume:{chat}")
+            notifieur.envoyer(dernier["texte"] if dernier else "Pas encore de résumé : il est préparé chaque "
+                              f"matin à {conf['planification']['heure_resume']}.",
+                              titre=dernier["titre"] if dernier else "",
+                              boutons=[[BOUTON_PORTEFEUILLE], [BOUTON_ACTUS]] if dernier and u["portefeuille"]
+                              else None, chat_id=chat)
+            continue
         if usr.est_actif(u) and ordre == "/themes":
             if len(mots) > 1:
                 reponse, boutons = detail_theme(conf, journal, u, mots[1].lower(), telecharger, collecter)
@@ -718,12 +726,61 @@ def resume(conf, journal: Journal, notifieur: Notifieur) -> None:
         # chacun ne voit que les hypothèses sur ses domaines et sur ses propres valeurs
         vues = usr.visibles(conf, u) | {conf["reference"]}
         visibles = [h for h in hypotheses if h.ticker in vues]
-        notifieur.envoyer(
-            formater_resume(contexte, siens, visibles, intros_a_suivre, avis, valeur, garde_fous),
-            titre=f"Résumé du {date.today():%d/%m/%Y}",
-            boutons=[[BOUTON_PORTEFEUILLE], [BOUTON_ACTUS]] if u["portefeuille"] else None,
-            chat_id=u["chat_id"],
-        )
+        texte = formater_resume(contexte, siens, visibles, intros_a_suivre, avis, valeur, garde_fous)
+        titre = f"Résumé du {date.today():%d/%m/%Y}"
+        journal.retenir(f"resume:{u['chat_id']}", {"titre": titre, "texte": texte})
+        boutons = [[BOUTON_PORTEFEUILLE], [BOUTON_ACTUS]] if u["portefeuille"] else None
+        nouveau = changements(journal, u, conf_u, historiques, taux, visibles)
+        if conf["planification"]["resume_quotidien"]:
+            notifieur.envoyer(texte, titre=titre, boutons=boutons, chat_id=u["chat_id"])
+        elif nouveau:
+            notifieur.envoyer("\n".join(nouveau + ["", "/resume : le résumé complet du jour."]),
+                              titre="Ce qui a changé", boutons=boutons, chat_id=u["chat_id"])
+
+
+def changements(journal: Journal, u: dict, conf_u, historiques, taux, hypotheses) -> list[str]:
+    """Ce qui a bougé depuis le point précédent : avis sur une position, risque de
+    baisse inhabituelle qui change de palier (25 points), piste nouvelle sur une de
+    ses valeurs. Vide si rien n'a changé, et au tout premier passage."""
+    cle = f"changements:{u['chat_id']}"
+    avant = journal.etat(cle)
+    lignes = []
+    avis = {}
+    for position, a in avis_portefeuille(conf_u, historiques, taux):
+        avis[a.ticker] = a.action
+        ancien = (avant or {}).get("avis", {}).get(a.ticker)
+        if avant is not None and ancien != a.action:
+            lignes.append(cons.formater_avis(a, position.get("nom", a.ticker))
+                          + (f" (avant : {ancien})" if ancien else ""))
+
+    risques = {}
+    noms = {conf_u["reference"]: "Marché"} | {t: usr.nom_de(t) for t in usr.tickers_de(u)}
+    noms |= {p["ticker"]: p.get("nom", p["ticker"]) for p in u["portefeuille"]}
+    for ticker, nom in noms.items():
+        hist = historiques.get(ticker)
+        r = rsq.evaluer(ticker, hist) if hist is not None else None
+        if r is None:
+            continue
+        risques[ticker] = r.score
+        ancien = (avant or {}).get("risques", {}).get(ticker)
+        if ancien is not None and ancien // 25 != r.score // 25:
+            motif = r.raisons[0] if r.raisons else "baisse dans la norme de la valeur"
+            lignes.append(f"🌡️ {nom} : risque de baisse {ancien} → {r.score}/100, {motif}")
+
+    # une même piste (valeur et sens) n'est redite qu'au bout de deux semaines
+    pistes = {k: j for k, j in (avant or {}).get("pistes", {}).items()
+              if date.fromisoformat(j) > date.today() - timedelta(days=14)}
+    for h in hypotheses:
+        cle_piste = f"{h.ticker}:{h.sens}"
+        if cle_piste in pistes:
+            continue
+        pistes[cle_piste] = date.today().isoformat()
+        if avant is not None:
+            fleche = "⬆️ Hausse possible" if h.sens == "hausse" else "⬇️ Baisse possible"
+            lignes.append(f"{fleche} : {usr.nom_de(h.ticker)} ({h.ticker}), {h.horizon_jours} j, "
+                          f"confiance {h.confiance}/5. {h.raisonnement}")
+    journal.retenir(cle, {"avis": avis, "risques": risques, "pistes": pistes})
+    return lignes
 
 
 def thermometre(conf, historiques) -> list[str]:
@@ -937,6 +994,7 @@ COMMANDES_TELEGRAM = [
     ("oublier", "TICKER : ne plus surveiller"),
     ("liste", "Valeurs surveillées"),
     ("themes", "Domaines suivis et leurs meilleures valeurs"),
+    ("resume", "Le résumé complet du jour"),
     ("poche", "MONTANT : argent dédié aux conseils d'achat"),
     ("aide", "Toutes les commandes"),
     ("quitter", "Effacer tes données"),

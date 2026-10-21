@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS actus_vues (
     lien TEXT PRIMARY KEY,
     vue_le TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS etats (
+    cle TEXT PRIMARY KEY,  -- ce que le bot retient d'un passage à l'autre (dernier résumé, avis vus…)
+    valeur TEXT NOT NULL  -- JSON
+);
 CREATE TABLE IF NOT EXISTS alertes (
     cle TEXT NOT NULL,
     jour TEXT NOT NULL,
@@ -195,6 +199,15 @@ class Journal:
                 if self.db.execute("SELECT 1 FROM actus_vues WHERE lien = ?", (l,)).fetchone() is None}
 
     # --- alertes -----------------------------------------------------------
+    def etat(self, cle: str):
+        ligne = self.db.execute("SELECT valeur FROM etats WHERE cle = ?", (cle,)).fetchone()
+        return json.loads(ligne["valeur"]) if ligne else None
+
+    def retenir(self, cle: str, valeur) -> None:
+        self.db.execute("INSERT OR REPLACE INTO etats (cle, valeur) VALUES (?, ?)",
+                        (cle, json.dumps(valeur, ensure_ascii=False)))
+        self.db.commit()
+
     def alerte_inedite(self, cle: str, message: str, jour: date | None = None) -> bool:
         """True si l'alerte n'a pas encore été envoyée aujourd'hui (et la note)."""
         jour = (jour or date.today()).isoformat()

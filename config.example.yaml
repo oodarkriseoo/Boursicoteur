@@ -270,7 +270,9 @@ utilisateurs:
 
 planification:
   intervalle_veille_min: 30   # fréquence des contrôles en mode boucle
-  heure_resume: "08:00"       # heure du résumé quotidien (heure de Paris)
+  heure_resume: "08:00"       # heure du point quotidien (heure de Paris)
+  resume_quotidien: false     # false : seulement ce qui a changé (avis, risque, nouvelles pistes),
+                              # rien si rien n'a changé ; le résumé complet reste dans /resume
   jour_bilan: 1               # 1er du mois : bilan mensuel des hypothèses
 
 base_de_donnees: data/journal.sqlite
