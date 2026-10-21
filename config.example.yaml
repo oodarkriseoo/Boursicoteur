@@ -195,6 +195,30 @@ evenements:
     - https://www.war.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=400&Site=945&max=10
     - https://www.eia.gov/rss/todayinenergy.xml
 
+# GDELT : un sujet soudain bien plus couvert que d'habitude dans la presse
+# mondiale (toutes langues) devient un événement, relié à tes valeurs comme
+# ci-dessus. Gratuit, sans clé. Syntaxe des sujets : "expression exacte",
+# (A OR B). Le nom de chacune de tes positions est suivi en plus (positions).
+gdelt:
+  actives: true
+  fenetre_h: 4                # couverture des 4 dernières heures…
+  facteur: 3                  # …au moins 3 fois la moyenne des jours précédents
+  minimum: 30                 # et au moins 30 articles
+  par_passage: 2              # sujets lus à chaque relecture (GDELT : 1 requête / 5 s)
+  repos_h: 24                 # un sujet signalé ne l'est plus pendant 24 h
+  positions: true
+  sujets:
+    - '("Strait of Hormuz" OR "Red Sea shipping")'
+    - tariffs
+    - '"rare earths"'
+    - OPEC
+    - '("defense spending" OR "defence budget")'
+    - '"Taiwan Strait"'
+    - '"export controls" semiconductors'
+    - '("Ukraine ceasefire" OR "Ukraine peace talks")'
+    - '("GLP-1" OR semaglutide)'
+    - '("ECB rate" OR "Fed rate")'
+
 # Sources officielles, gratuites et sans clé, sur les sociétés suivies (thèmes,
 # positions et valeurs surveillées) : communiqués AMF des sociétés françaises
 # (toutes les 15 min), avis et autorisations de l'EMA, autorisations de la FDA,
@@ -270,7 +294,9 @@ utilisateurs:
 
 planification:
   intervalle_veille_min: 30   # fréquence des contrôles en mode boucle
-  heure_resume: "08:00"       # heure du résumé quotidien (heure de Paris)
+  heure_resume: "08:00"       # heure du point quotidien (heure de Paris)
+  resume_quotidien: false     # false : seulement ce qui a changé (avis, risque, nouvelles pistes),
+                              # rien si rien n'a changé ; le résumé complet reste dans /resume
   jour_bilan: 1               # 1er du mois : bilan mensuel des hypothèses
 
 base_de_donnees: data/journal.sqlite

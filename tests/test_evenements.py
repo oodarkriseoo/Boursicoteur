@@ -150,3 +150,14 @@ def test_flux_relu_avec_son_etag(monkeypatch):
     src.lire_flux("http://flux", cache=cache)
     src.lire_flux("http://flux", cache=cache)
     assert vus == [None, "v1"]
+
+
+def test_sujet_en_hausse_sur_gdelt_passe_par_claude(conf, branche, monkeypatch):
+    from boursicoteur.sources.actus import Actu
+
+    pic = Actu("Sujet en forte hausse dans la presse mondiale : tariffs", "http://gdelt/1", "GDELT, reuters.com")
+    monkeypatch.setattr(cli.src_gdelt, "sujets_en_hausse", lambda sujets, etat, reglages: [pic])
+    journal, notif, etat = Journal(":memory:"), Notif(), {}
+    cli.evenements(conf, journal, notif, etat)
+    assert branche[0].splitlines()[1].startswith("0. Sujet en forte hausse dans la presse mondiale : tariffs")
+    assert etat["gdelt"]["attente"] == []  # analysé : plus en attente

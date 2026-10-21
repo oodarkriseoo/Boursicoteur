@@ -31,6 +31,7 @@ ENVELOPPES = ("PEA", "CTO", "PEA-PME", "AV", "CRYPTO")
 
 AIDE = """Commandes :
 /portefeuille : valeur, plus-value et poids de chaque ligne
+/resume : le résumé complet du jour (le matin, seuls les changements sont envoyés)
 /positions : tes positions telles qu'enregistrées
 /ajouter TICKER QUANTITÉ PRIX_DE_REVIENT [PEA|CTO] [nom]
    ex. /ajouter MC.PA 3 612,40 PEA LVMH

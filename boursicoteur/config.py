@@ -45,6 +45,27 @@ DEFAUTS: dict[str, Any] = {
             "https://www.eia.gov/rss/todayinenergy.xml",
         ],
     },
+    "gdelt": {
+        "actives": True,
+        "fenetre_h": 4,             # couverture des 4 dernières heures…
+        "facteur": 3,               # …au moins 3 fois sa moyenne des jours précédents
+        "minimum": 30,              # et au moins 30 articles : un petit sujet ne compte pas
+        "par_passage": 2,           # sujets lus à chaque relecture des flux (GDELT : 1 requête / 5 s)
+        "repos_h": 24,              # un sujet signalé ne l'est plus pendant 24 h
+        "positions": True,          # suit aussi le nom de chaque position
+        "sujets": [
+            '("Strait of Hormuz" OR "Red Sea shipping")',
+            "tariffs",
+            '"rare earths"',
+            "OPEC",
+            '("defense spending" OR "defence budget")',
+            '"Taiwan Strait"',
+            '"export controls" semiconductors',
+            '("Ukraine ceasefire" OR "Ukraine peace talks")',
+            '("GLP-1" OR semaglutide)',
+            '("ECB rate" OR "Fed rate")',
+        ],
+    },
     "officiels": {"actives": True, "amf": True, "ema": True, "fda": True, "essais": True, "alertes_max": 5},
     "conseils": {
         "actives": True,
@@ -81,7 +102,7 @@ DEFAUTS: dict[str, Any] = {
         "ntfy": {"topic_env": "NTFY_TOPIC"},
     },
     "utilisateurs": {"max": 10},  # personnes acceptées sur le bot, administrateur compris
-    "planification": {"intervalle_veille_min": 30, "heure_resume": "08:00", "jour_bilan": 1},
+    "planification": {"intervalle_veille_min": 30, "heure_resume": "08:00", "resume_quotidien": False, "jour_bilan": 1},
     "base_de_donnees": "data/journal.sqlite",
 }
 
