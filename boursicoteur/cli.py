@@ -39,6 +39,7 @@ from .journal import Hypothese, Journal
 from .notifications import Notifieur, chat_du_clic
 from .sources import actus as src_actus
 from .sources import cours as src_cours
+from .sources import gdelt as src_gdelt
 from .sources import introductions as src_intro
 
 log = logging.getLogger("boursicoteur")
@@ -243,11 +244,17 @@ def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None =
     if not reglages["actives"]:
         return
     etat = {} if etat is None else etat
-    actus = []
+    # sujets en forte hausse dans la presse mondiale d'abord : ils attendent l'appel à Claude
+    etat_gdelt = etat.setdefault("gdelt", {})
+    if conf["gdelt"]["actives"]:
+        etat_gdelt.setdefault("attente", []).extend(
+            src_gdelt.sujets_en_hausse(sujets_gdelt(conf, journal), etat_gdelt, conf["gdelt"]))
+    actus = list(etat_gdelt.get("attente", []))
     for url in reglages["flux"]:
         actus += src_actus.lire_flux(url, limite=15, cache=etat.setdefault("cache", {}))
     inconnus = journal.liens_inconnus([f"evt:{a.lien}" for a in actus])
     inedites = list({a.lien: a for a in actus if f"evt:{a.lien}" in inconnus}.values())[:30]
+    etat_gdelt["attente"] = [a for a in etat_gdelt.get("attente", []) if f"evt:{a.lien}" in inconnus]
     if not inedites:
         return
     # les actus attendent le prochain appel autorisé : rien n'est perdu, tout est groupé
@@ -273,6 +280,7 @@ def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None =
     if resultat is None:
         return  # Claude indisponible : les actus seront reproposées au prochain appel
     journal.nouvelles_actus([f"evt:{a.lien}" for a in inedites])
+    etat_gdelt["attente"] = []
     effets = evt.lire_reponse(resultat, inedites, valeurs)
     if not effets:
         return
@@ -309,6 +317,15 @@ def evenements(conf, journal: Journal, notifieur: Notifieur, etat: dict | None =
                 texte += "\n\n⚠️ Tu détiens cette valeur : vérifie ton stop et décide à froid si tu allèges."
             notifieur.envoyer(texte, titre="Événement", urgent=e.confiance >= 4,
                               boutons=boutons_conseil(conf_u, e.ticker, id_conseil, u), chat_id=u["chat_id"])
+
+
+def sujets_gdelt(conf, journal: Journal) -> list[str]:
+    """Les sujets de config.yaml, puis le nom de chaque position (une fois pour tous)."""
+    sujets = list(conf["gdelt"]["sujets"])
+    if conf["gdelt"]["positions"]:
+        noms = {p.get("nom") or usr.nom_de(p["ticker"]) for u in usr.actifs(journal) for p in u["portefeuille"]}
+        sujets += sorted(f'"{n}"' for n in noms if n and len(n) >= 4 and not any(c in n for c in '".^='))
+    return list(dict.fromkeys(sujets))
 
 
 def ibkr_pour(conf, u: dict | None) -> bool:

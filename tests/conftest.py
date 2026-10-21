@@ -38,3 +38,12 @@ def annuaire_hors_ligne(monkeypatch):
         columns=["name", "sector", "industry_group", "industry", "exchange", "country", "isin", "market_cap",
                  "delisted"])
     monkeypatch.setattr(annuaire, "_base", base)
+
+
+@pytest.fixture(autouse=True)
+def gdelt_hors_ligne(monkeypatch):
+    """GDELT n'est jamais appelé pour de vrai pendant les tests."""
+    from boursicoteur.sources import gdelt
+
+    monkeypatch.setattr(gdelt, "_get", lambda params: None)
+    monkeypatch.setattr(gdelt, "PAUSE_S", 0)
