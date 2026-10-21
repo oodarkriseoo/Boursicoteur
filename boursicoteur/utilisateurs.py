@@ -14,6 +14,7 @@ l'accepte. Les ordres IBKR restent réservés à l'administrateur.
 from __future__ import annotations
 
 import logging
+import unicodedata
 from typing import Any, Callable
 
 from . import annuaire
@@ -39,10 +40,13 @@ AIDE = """Commandes :
 /stop TICKER PRIX : alerte si le cours passe sous ce prix (0 pour l'enlever)
 /suiveur TICKER POURCENT : stop suiveur, alerte si le cours recule de ce
    pourcentage depuis son plus haut (0 pour l'enlever), ex. /suiveur MC.PA 12
-/baisse TICKER POURCENT : alerte dès que la valeur perd ce pourcentage sur la
-   séance (0 pour l'enlever), ex. /baisse WLD.PA 1 pour le MSCI World
-   Ces trois seuils marchent aussi sur une valeur que tu ne détiens pas :
-   elle est alors ajoutée à tes valeurs surveillées.
+/baisse VALEUR POURCENT : alerte dès que la valeur perd ce pourcentage sur la
+   séance (0 pour l'enlever), ex. /baisse msci world 1
+/alerte : choisir une valeur puis un seuil de baisse, tout en boutons
+   (ou /alerte lvmh, /alerte msci world 2)
+   Ces seuils marchent aussi sur une valeur que tu ne détiens pas : elle est
+   alors ajoutée à tes valeurs surveillées. À la place du ticker, tu peux
+   écrire le nom : lvmh, sanofi, msci world, cac 40, bitcoin…
 /etf TICKER : marque un ETF, exempté du plafond de poids par titre (bascule)
 /chercher MOTS : trouver des valeurs par nom, secteur ou pays
    ex. /chercher defense france, /chercher luxe, /chercher nvidia
@@ -130,6 +134,102 @@ def basculer_domaine(journal, conf: dict[str, Any], u: dict, cle: str) -> bool:
     return cle in suivis
 
 
+# Indices et ETF courants, que l'annuaire (actions seulement) ne connaît pas :
+# nom affiché, puis les façons de l'écrire.
+REPERES = {
+    "WLD.PA": ("MSCI World", ("msci world", "msci", "world", "monde")),
+    "^FCHI": ("CAC 40", ("cac 40", "cac40", "cac")),
+    "^GSPC": ("S&P 500", ("s&p 500", "s&p500", "sp500", "sp 500", "s&p")),
+    "^IXIC": ("Nasdaq", ("nasdaq",)),
+    "^STOXX": ("Stoxx Europe 600", ("stoxx 600", "stoxx", "europe")),
+    "BTC-EUR": ("Bitcoin", ("bitcoin", "btc")),
+}
+SEUILS_BAISSE = (1, 2, 3, 5)
+
+
+def nom_de(ticker: str) -> str:
+    return REPERES[ticker][0] if ticker in REPERES else annuaire.nom(ticker)
+
+
+def _sans_accents(texte: str) -> str:
+    return unicodedata.normalize("NFKD", texte).encode("ascii", "ignore").decode().lower().strip()
+
+
+def resoudre(u: dict, texte: str) -> tuple[str | None, list[tuple[str, str]]]:
+    """Le ticker visé par « lvmh », « msci world » ou « MC.PA » : d'abord les
+    indices courants, puis les positions et valeurs surveillées (ticker ou nom),
+    puis l'annuaire. Renvoie (ticker, []) si un seul convient, sinon
+    (None, [(ticker, nom)…]) à proposer en boutons."""
+    cherche = _sans_accents(texte)
+    if not cherche:
+        return None, []
+    for ticker, (_, ecritures) in REPERES.items():
+        if cherche in ecritures or cherche == ticker.lower():
+            return ticker, []
+    siens = [(p["ticker"], p.get("nom") or nom_de(p["ticker"])) for p in u["portefeuille"]]
+    siens += [(t, nom_de(t)) for t in u["suivis"]]
+    for ticker, _ in siens:
+        if ticker.lower() == cherche:
+            return ticker, []
+    trouves = list(dict.fromkeys(t for t, n in siens if cherche in _sans_accents(n)))
+    if len(trouves) == 1:
+        return trouves[0], []
+    if trouves:
+        return None, [(t, nom_de(t)) for t in trouves]
+    if " " not in cherche and any(c in cherche for c in ".-^="):
+        return texte.strip().upper(), []  # un ticker Yahoo tapé tel quel
+    societes = annuaire.chercher(texte, limite=6)
+    if len(societes) == 1:
+        return societes[0].ticker, []
+    if societes:
+        return None, [(s.ticker, annuaire.court(s.nom)) for s in societes]
+    return texte.strip().upper(), []  # dernier recours : un ticker US sans suffixe (NVDA)
+
+
+def _cible(u: dict, args: list[str]) -> tuple[str | None, list, float | None]:
+    """« msci world 1,5 » → (ticker, candidats, 1.5). Le nombre est le dernier mot."""
+    if len(args) < 2:
+        return None, [], None
+    valeur = _nombre(args[-1].replace("%", "").lstrip("-"))
+    ticker, candidats = resoudre(u, " ".join(args[:-1]))
+    return ticker, candidats, valeur
+
+
+def _plusieurs(candidats: list[tuple[str, str]]) -> str:
+    return ("Plusieurs valeurs possibles, précise avec le ticker :\n"
+            + "\n".join(f"• {n} : {t}" for t, n in candidats))
+
+
+def boutons_seuil(ticker: str) -> list:
+    return [[(f"-{p} %", f"baisse:{ticker}:{p}") for p in SEUILS_BAISSE],
+            [("🔕 Pas d'alerte", f"baisse:{ticker}:0")]]
+
+
+def choix_seuil(ticker: str) -> tuple[str, list]:
+    return (f"Prévenir dès que {nom_de(ticker)} ({ticker}) perd combien sur la séance ?\n"
+            "Puis de nouveau à chaque palier de plus.", boutons_seuil(ticker))
+
+
+def choix_valeur(u: dict) -> tuple[str, list]:
+    """Tes positions, tes valeurs surveillées puis les indices courants, un bouton chacun."""
+    tickers = list(dict.fromkeys(tickers_de(u) + list(REPERES)))[:30]
+    boutons = [(f"🔔 {nom_de(t)[:20]}", f"alerte:{t}") for t in tickers]
+    return ("Sur quelle valeur veux-tu une alerte de baisse ?\n"
+            "Pour une autre : /alerte suivie du nom, ex. /alerte airbus.",
+            [boutons[i:i + 3] for i in range(0, len(boutons), 3)])
+
+
+def poser_baisse(journal, u: dict, ticker: str, pct: float, valider: Callable[[str], bool]) -> str:
+    if erreur := _regler(u, ticker, "baisse_pct", pct, valider):
+        return erreur
+    journal.enregistrer_utilisateur(u)
+    nom = next((p["nom"] for p in u["portefeuille"] if p["ticker"] == ticker and p.get("nom")), nom_de(ticker))
+    if not pct:
+        return f"Alerte de baisse sur {nom} enlevée."
+    return (f"🔔 Alerte dès que {nom} ({ticker}) perd {pct:g} % sur la séance, "
+            f"puis à chaque {pct:g} % de plus.")
+
+
 def _nombre(texte: str) -> float | None:
     try:
         return float(texte.replace(",", ".").replace("€", ""))
@@ -180,6 +280,8 @@ def _ligne(p: dict) -> str:
     extras = [f"stop {p['stop']:g}"] if p.get("stop") else []
     if p.get("suiveur_pct"):
         extras.append(f"stop suiveur {p['suiveur_pct']:g} %")
+    if p.get("baisse_pct"):
+        extras.append(f"alerte séance -{p['baisse_pct']:g} %")
     if p.get("diversifie"):
         extras.append("ETF")
     if p.get("devise", "EUR") != "EUR":
@@ -278,20 +380,23 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
         return dire(f"{ticker} retiré de tes positions.")
 
     if ordre == "stop":
-        prix = _nombre(args[1]) if len(args) > 1 else None
+        ticker, candidats, prix = _cible(u, args)
         if prix is None or prix < 0:
-            return dire("Usage : /stop TICKER PRIX (dans la devise de cotation ; 0 pour l'enlever)")
-        ticker = args[0].upper()
+            return dire("Usage : /stop VALEUR PRIX (dans la devise de cotation ; 0 pour l'enlever)\n"
+                        "ex. /stop lvmh 550")
+        if candidats:
+            return dire(_plusieurs(candidats))
         if erreur := _regler(u, ticker, "stop", prix, valider):
             return dire(erreur)
         journal.enregistrer_utilisateur(u)
         return dire(f"Seuil de {ticker} : alerte sous {prix:g}." if prix else f"Seuil de {ticker} enlevé.")
 
     if ordre == "suiveur":
-        pct = _nombre(args[1].replace("%", "")) if len(args) > 1 else None
+        ticker, candidats, pct = _cible(u, args)
         if pct is None or not 0 <= pct < 100:
-            return dire("Usage : /suiveur TICKER POURCENT (ex. /suiveur MC.PA 12 ; 0 pour l'enlever)")
-        ticker = args[0].upper()
+            return dire("Usage : /suiveur VALEUR POURCENT (ex. /suiveur lvmh 12 ; 0 pour l'enlever)")
+        if candidats:
+            return dire(_plusieurs(candidats))
         if erreur := _regler(u, ticker, "suiveur_pct", pct, valider):
             return dire(erreur)
         journal.enregistrer_utilisateur(u)
@@ -301,17 +406,26 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
                     "Le niveau du jour figure dans le résumé du matin.")
 
     if ordre == "baisse":
-        pct = _nombre(args[1].replace("%", "").lstrip("-")) if len(args) > 1 else None
+        ticker, candidats, pct = _cible(u, args)
         if pct is None or not 0 <= pct < 100:
-            return dire("Usage : /baisse TICKER POURCENT (ex. /baisse WLD.PA 1 ; 0 pour l'enlever)")
-        ticker = args[0].upper()
-        if erreur := _regler(u, ticker, "baisse_pct", pct, valider):
-            return dire(erreur)
-        journal.enregistrer_utilisateur(u)
-        if not pct:
-            return dire(f"Alerte de baisse sur {ticker} enlevée.")
-        return dire(f"Alerte dès que {ticker} perd {pct:g} % sur la séance, puis à chaque {pct:g} % de plus. "
-                    "Le cours est relevé à chaque contrôle de la veille.")
+            return dire("Usage : /baisse VALEUR POURCENT (ex. /baisse msci world 1 ; 0 pour l'enlever)\n"
+                        "Plus simple : /alerte, tout en boutons.")
+        if candidats:
+            return dire("Laquelle ?", [[(f"🔔 {n[:20]}", f"baisse:{t}:{pct:g}")] for t, n in candidats])
+        return dire(poser_baisse(journal, u, ticker, pct, valider))
+
+    if ordre == "alerte":
+        if not args:
+            return dire(*choix_valeur(u))
+        pct = _nombre(args[-1].replace("%", "").lstrip("-")) if len(args) > 1 else None
+        nom_cherche = " ".join(args[:-1] if pct is not None else args)
+        ticker, candidats = resoudre(u, nom_cherche)
+        if candidats:
+            return dire("Laquelle ?", [[(f"🔔 {n[:20]}", f"baisse:{t}:{pct:g}" if pct is not None
+                                         else f"alerte:{t}")] for t, n in candidats])
+        if pct is not None and 0 <= pct < 100:
+            return dire(poser_baisse(journal, u, ticker, pct, valider))
+        return dire(*choix_seuil(ticker))
 
     if ordre == "etf":
         ticker = args[0].upper() if args else ""
@@ -362,7 +476,7 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
             return dire("Aucune valeur surveillée en dehors de tes positions. Ajoute-en avec /suivre TICKER")
         reglages = u.get("alertes_suivis") or {}
         return dire("Valeurs surveillées : " + ", ".join(
-                        (f"{annuaire.nom(t)} ({t})" if annuaire.nom(t) != t else t) + _seuils_suivi(reglages.get(t, {}))
+                        (f"{nom_de(t)} ({t})" if nom_de(t) != t else t) + _seuils_suivi(reglages.get(t, {}))
                         for t in u["suivis"]) +
                     "\nTu reçois sur elles les alertes de chute et les opportunités, comme sur tes positions.")
 

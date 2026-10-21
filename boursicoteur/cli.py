@@ -65,7 +65,7 @@ def lignes_surveillees(u: dict) -> list[dict]:
     avec les seuils posés dessus par /stop, /suiveur ou /baisse."""
     detenus = {p["ticker"] for p in u["portefeuille"]}
     reglages = u.get("alertes_suivis") or {}
-    return u["portefeuille"] + [{"ticker": t, "nom": annuaire.nom(t), **reglages.get(t, {})}
+    return u["portefeuille"] + [{"ticker": t, "nom": usr.nom_de(t), **reglages.get(t, {})}
                                 for t in u["suivis"] if t not in detenus]
 
 
@@ -587,6 +587,20 @@ def traiter_mises_a_jour(conf, journal: Journal, notifieur: Notifieur, offset, a
             journal.enregistrer_utilisateur(u)
             notifieur.accuser_clic(clic, f"➕ Surveillées : {', '.join(ajouts)}." if ajouts else "Rien à ajouter.")
             continue
+        if action == "alerte":
+            reponse = usr.choix_seuil(id_texte)
+            # la liste des valeurs reste affichée : on peut en régler plusieurs
+            notifieur.accuser_clic(clic, "", message=False, retirer=False)
+            notifieur.envoyer(reponse[0], titre="", boutons=reponse[1], chat_id=chat)
+            continue
+        if action == "baisse":
+            ticker, _, pct = id_texte.rpartition(":")
+            pct = usr._nombre(pct)
+            if not ticker or pct is None or not 0 <= pct < 100:
+                notifieur.accuser_clic(clic, "Bouton inconnu ou expiré.")
+                continue
+            notifieur.accuser_clic(clic, usr.poser_baisse(journal, u, ticker, pct, valider))
+            continue
         if action == "actus":
             # le bouton reste sous le résumé : chaque clic récolte des actus fraîches
             notifieur.accuser_clic(clic, "Je rassemble les actus…", message=False, retirer=False)
@@ -915,7 +929,8 @@ COMMANDES_TELEGRAM = [
     ("retirer", "TICKER : retirer une position"),
     ("stop", "TICKER PRIX : seuil de sortie"),
     ("suiveur", "TICKER POURCENT : stop suiveur"),
-    ("baisse", "TICKER POURCENT : alerte dès cette baisse sur la séance"),
+    ("alerte", "Alerte de baisse sur une valeur, en boutons"),
+    ("baisse", "VALEUR POURCENT : alerte dès cette baisse sur la séance"),
     ("etf", "TICKER : marquer un ETF (hors plafond par titre)"),
     ("chercher", "MOTS : valeurs par nom, secteur ou pays"),
     ("suivre", "TICKER… : surveiller sans détenir"),
