@@ -61,9 +61,12 @@ def utilisateurs(conf, journal: Journal, notifieur: Notifieur) -> list[dict]:
 
 
 def lignes_surveillees(u: dict) -> list[dict]:
-    """Positions de l'utilisateur, puis ses valeurs surveillées sans quantité ni prix de revient."""
+    """Positions de l'utilisateur, puis ses valeurs surveillées sans quantité ni prix de revient,
+    avec les seuils posés dessus par /stop, /suiveur ou /baisse."""
     detenus = {p["ticker"] for p in u["portefeuille"]}
-    return u["portefeuille"] + [{"ticker": t, "nom": t} for t in u["suivis"] if t not in detenus]
+    reglages = u.get("alertes_suivis") or {}
+    return u["portefeuille"] + [{"ticker": t, "nom": annuaire.nom(t), **reglages.get(t, {})}
+                                for t in u["suivis"] if t not in detenus]
 
 
 def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
@@ -96,6 +99,9 @@ def veille(conf, journal: Journal, notifieur: Notifieur) -> None:
         # stop suiveur, poids d'un titre, recul du portefeuille, éligibilité PEA
         alertes += gf.alertes(conf_u, historiques, {d: t for d, t in taux.items() if t},
                               etat_portefeuille(u["portefeuille"], historiques))
+        # stop suiveur sur les valeurs seulement surveillées
+        alertes += gf.alertes_suiveurs(gf.stops_suiveurs(
+            [l for l in lignes_surveillees(u) if "quantite" not in l], historiques))
         for alerte in alertes:
             jour = date.min if alerte.unique else None
             if journal.alerte_inedite(usr.cle_alerte(u, alerte.cle), alerte.message, jour):
@@ -909,6 +915,7 @@ COMMANDES_TELEGRAM = [
     ("retirer", "TICKER : retirer une position"),
     ("stop", "TICKER PRIX : seuil de sortie"),
     ("suiveur", "TICKER POURCENT : stop suiveur"),
+    ("baisse", "TICKER POURCENT : alerte dès cette baisse sur la séance"),
     ("etf", "TICKER : marquer un ETF (hors plafond par titre)"),
     ("chercher", "MOTS : valeurs par nom, secteur ou pays"),
     ("suivre", "TICKER… : surveiller sans détenir"),

@@ -226,6 +226,48 @@ def test_stop_suiveur_et_etf_par_commande():
     textes = [t for _, t in notif.envois]
     assert "-12 %" in textes[0] and "marqué comme ETF" in textes[1]
     assert "stop suiveur 12 %, ETF" in textes[2]
-    assert "n'est pas dans tes positions" in textes[3]
-    (ligne,) = journal.utilisateur("x")["portefeuille"]
+    assert "-10 %" in textes[3]  # NVDA, non détenue, passe en valeur surveillée
+    admin = journal.utilisateur("x")
+    (ligne,) = admin["portefeuille"]
     assert ligne["diversifie"] and "suiveur_pct" not in ligne and ligne["quantite"] == 2
+    assert admin["suivis"] == ["NVDA"] and admin["alertes_suivis"] == {"NVDA": {"suiveur_pct": 10.0}}
+
+
+def test_seuils_d_alerte_sur_une_valeur_seulement_surveillee():
+    journal = journal_avec_admin()
+    notif = traiter(journal, messages=[
+        message("/baisse WLD.PA 1", chat="x"),
+        message("/stop WLD.PA 400", chat="x"),
+        message("/baisse FAUX.PA 1", chat="x"),
+        message("/baisse NVDA 0", chat="x"),
+        message("/liste", chat="x"),
+    ])
+    textes = [t for _, t in notif.envois]
+    assert "perd 1 % sur la séance" in textes[0] and "alerte sous 400" in textes[1]
+    assert "Pas de cours pour FAUX.PA" in textes[2] and "ni dans tes positions" in textes[3]
+    assert "WLD.PA [alerte sous 400, séance -1 %]" in textes[4]
+    admin = journal.utilisateur("x")
+    assert admin["suivis"] == ["WLD.PA"]
+    assert admin["alertes_suivis"] == {"WLD.PA": {"baisse_pct": 1.0, "stop": 400.0}}
+
+    traiter(journal, messages=[message("/baisse WLD.PA 0", chat="x"), message("/stop WLD.PA 0", chat="x")])
+    assert journal.utilisateur("x")["alertes_suivis"] == {}
+    traiter(journal, messages=[message("/baisse WLD.PA 2", chat="x"), message("/oublier WLD.PA", chat="x")])
+    admin = journal.utilisateur("x")
+    assert admin["suivis"] == [] and admin["alertes_suivis"] == {}
+
+
+def test_alerte_de_baisse_choisie_meme_si_la_baisse_est_ordinaire(monkeypatch):
+    journal = journal_avec_admin()
+    journal.enregistrer_utilisateur({**journal.utilisateur("x"), "suivis": ["WLD.PA"],
+                                     "alertes_suivis": {"WLD.PA": {"baisse_pct": 1.0, "suiveur_pct": 5.0}}})
+    # une valeur qui oscille de ±1,5 % chaque jour : -1,5 % est sa respiration normale
+    cours = [100.0 * (1.015 if i % 2 else 1) for i in range(80)] + [100.0 * 1.015 * 0.985]
+    monkeypatch.setattr(cli.src_cours, "historiques", lambda tickers, periode: {
+        "WLD.PA": serie(cours), CONF["reference"]: serie([100.0] * 81)})
+    monkeypatch.setattr(cli.src_actus, "collecter", lambda flux, tickers: [])
+    notif = FauxNotifieur([])
+    cli.veille(CONF, journal, notif)
+    alertes = [t for titre, t in notif.envois if titre == "Alerte"]
+    assert any("WLD.PA" in t and "-1.5 % sur la séance" in t and "-1 %" in t for t in alertes)
+    assert not any("Stop suiveur" in t for t in alertes)  # à -1,5 % du sommet, loin des -5 %

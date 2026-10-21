@@ -39,6 +39,10 @@ AIDE = """Commandes :
 /stop TICKER PRIX : alerte si le cours passe sous ce prix (0 pour l'enlever)
 /suiveur TICKER POURCENT : stop suiveur, alerte si le cours recule de ce
    pourcentage depuis son plus haut (0 pour l'enlever), ex. /suiveur MC.PA 12
+/baisse TICKER POURCENT : alerte dès que la valeur perd ce pourcentage sur la
+   séance (0 pour l'enlever), ex. /baisse WLD.PA 1 pour le MSCI World
+   Ces trois seuils marchent aussi sur une valeur que tu ne détiens pas :
+   elle est alors ajoutée à tes valeurs surveillées.
 /etf TICKER : marque un ETF, exempté du plafond de poids par titre (bascule)
 /chercher MOTS : trouver des valeurs par nom, secteur ou pays
    ex. /chercher defense france, /chercher luxe, /chercher nvidia
@@ -131,6 +135,45 @@ def _nombre(texte: str) -> float | None:
         return float(texte.replace(",", ".").replace("€", ""))
     except ValueError:
         return None
+
+
+def _regler(u: dict, ticker: str, cle: str, valeur: float,
+            valider: Callable[[str], bool]) -> str | None:
+    """Pose (ou enlève si ``valeur`` vaut 0) un seuil d'alerte sur une position,
+    ou à défaut sur une valeur surveillée, ajoutée à la liste si besoin.
+    Renvoie le message d'erreur, ou None si c'est fait."""
+    visees = [p for p in u["portefeuille"] if p["ticker"] == ticker]
+    if not visees:
+        if ticker not in u["suivis"]:
+            if not valeur:
+                return f"{ticker} n'est ni dans tes positions ni dans tes valeurs surveillées."
+            if len(u["suivis"]) >= SUIVIS_MAX:
+                return f"{SUIVIS_MAX} valeurs surveillées au plus : retires-en une avec /oublier."
+            if not valider(ticker):
+                return (f"Pas de cours pour {ticker} sur Yahoo Finance. Vérifie le suffixe de la place "
+                        "(MC.PA pour Paris, ASML.AS pour Amsterdam, rien pour les US).")
+            u["suivis"].append(ticker)
+        reglages = u.setdefault("alertes_suivis", {})
+        visees = [reglages.setdefault(ticker, {})]
+    for p in visees:
+        if valeur:
+            p[cle] = valeur
+        else:
+            p.pop(cle, None)
+    if not u.get("alertes_suivis", {}).get(ticker, True):
+        del u["alertes_suivis"][ticker]
+    return None
+
+
+def _seuils_suivi(reglages: dict) -> str:
+    morceaux = []
+    if reglages.get("stop"):
+        morceaux.append(f"sous {reglages['stop']:g}")
+    if reglages.get("suiveur_pct"):
+        morceaux.append(f"suiveur -{reglages['suiveur_pct']:g} %")
+    if reglages.get("baisse_pct"):
+        morceaux.append(f"séance -{reglages['baisse_pct']:g} %")
+    return f" [alerte {', '.join(morceaux)}]" if morceaux else ""
 
 
 def _ligne(p: dict) -> str:
@@ -239,35 +282,36 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
         if prix is None or prix < 0:
             return dire("Usage : /stop TICKER PRIX (dans la devise de cotation ; 0 pour l'enlever)")
         ticker = args[0].upper()
-        visees = [p for p in u["portefeuille"] if p["ticker"] == ticker]
-        if not visees:
-            return dire(f"{ticker} n'est pas dans tes positions.")
-        for p in visees:
-            if prix:
-                p["stop"] = prix
-            else:
-                p.pop("stop", None)
+        if erreur := _regler(u, ticker, "stop", prix, valider):
+            return dire(erreur)
         journal.enregistrer_utilisateur(u)
-        return dire(f"Seuil de sortie de {ticker} : {prix:g}." if prix else f"Seuil de sortie de {ticker} enlevé.")
+        return dire(f"Seuil de {ticker} : alerte sous {prix:g}." if prix else f"Seuil de {ticker} enlevé.")
 
     if ordre == "suiveur":
         pct = _nombre(args[1].replace("%", "")) if len(args) > 1 else None
         if pct is None or not 0 <= pct < 100:
             return dire("Usage : /suiveur TICKER POURCENT (ex. /suiveur MC.PA 12 ; 0 pour l'enlever)")
         ticker = args[0].upper()
-        visees = [p for p in u["portefeuille"] if p["ticker"] == ticker]
-        if not visees:
-            return dire(f"{ticker} n'est pas dans tes positions.")
-        for p in visees:
-            if pct:
-                p["suiveur_pct"] = pct
-            else:
-                p.pop("suiveur_pct", None)
+        if erreur := _regler(u, ticker, "suiveur_pct", pct, valider):
+            return dire(erreur)
         journal.enregistrer_utilisateur(u)
         if not pct:
             return dire(f"Stop suiveur de {ticker} enlevé.")
         return dire(f"Stop suiveur de {ticker} : alerte à -{pct:g} % de son plus haut des 6 derniers mois. "
                     "Le niveau du jour figure dans le résumé du matin.")
+
+    if ordre == "baisse":
+        pct = _nombre(args[1].replace("%", "").lstrip("-")) if len(args) > 1 else None
+        if pct is None or not 0 <= pct < 100:
+            return dire("Usage : /baisse TICKER POURCENT (ex. /baisse WLD.PA 1 ; 0 pour l'enlever)")
+        ticker = args[0].upper()
+        if erreur := _regler(u, ticker, "baisse_pct", pct, valider):
+            return dire(erreur)
+        journal.enregistrer_utilisateur(u)
+        if not pct:
+            return dire(f"Alerte de baisse sur {ticker} enlevée.")
+        return dire(f"Alerte dès que {ticker} perd {pct:g} % sur la séance, puis à chaque {pct:g} % de plus. "
+                    "Le cours est relevé à chaque contrôle de la veille.")
 
     if ordre == "etf":
         ticker = args[0].upper() if args else ""
@@ -309,14 +353,17 @@ def commande(journal, chat_id: str, nom: str, texte: str, admin_id: str,
         if not tickers & set(u["suivis"]):
             return dire("Usage : /oublier TICKER, pour une valeur de /liste")
         u["suivis"] = [t for t in u["suivis"] if t not in tickers]
+        u["alertes_suivis"] = {t: r for t, r in (u.get("alertes_suivis") or {}).items() if t not in tickers}
         journal.enregistrer_utilisateur(u)
         return dire(f"Tu ne surveilles plus {', '.join(sorted(tickers))}.")
 
     if ordre == "liste":
         if not u["suivis"]:
             return dire("Aucune valeur surveillée en dehors de tes positions. Ajoute-en avec /suivre TICKER")
-        return dire("Valeurs surveillées : " + ", ".join(f"{annuaire.nom(t)} ({t})" if annuaire.nom(t) != t else t
-                                                        for t in u["suivis"]) +
+        reglages = u.get("alertes_suivis") or {}
+        return dire("Valeurs surveillées : " + ", ".join(
+                        (f"{annuaire.nom(t)} ({t})" if annuaire.nom(t) != t else t) + _seuils_suivi(reglages.get(t, {}))
+                        for t in u["suivis"]) +
                     "\nTu reçois sur elles les alertes de chute et les opportunités, comme sur tes positions.")
 
     if ordre == "chercher":
