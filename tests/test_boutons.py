@@ -11,10 +11,11 @@ class FauxNotifieur:
 
     def __init__(self, clics, messages=()):
         self._clics, self._messages, self.accuses, self.envois = clics, list(messages), [], []
-        self.destinataires = []
+        self.destinataires, self.boutons = [], []
 
     def envoyer(self, texte, titre="", urgent=False, boutons=None, chat_id=None):
         self.envois.append((titre, texte))
+        self.boutons.append(boutons)
         self.destinataires.append(chat_id or self.chat_id)
 
     def mises_a_jour(self, offset, attente):

@@ -82,6 +82,18 @@ def alertes_portefeuille(
                 )
             )
 
+        baisse = position.get("baisse_pct")
+        if baisse and seance is not None and seance <= -baisse:
+            # seuil choisi par l'utilisateur : prévenu même si la baisse est ordinaire,
+            # puis de nouveau à chaque fois que la baisse s'aggrave encore de ce seuil
+            alertes.append(
+                Alerte(
+                    f"baisse:{ticker}:{int(-seance // baisse)}",
+                    f"🔔 {nom} ({ticker}) perd {seance:.1f} % sur la séance, au-delà de ton seuil "
+                    f"de -{baisse:g} % (cours {dernier:.2f}).\n{details}",
+                )
+            )
+
         precedent = cours_precedents.get(ticker)
         if precedent:
             chute = (dernier / precedent - 1) * 100
@@ -100,7 +112,9 @@ def alertes_portefeuille(
                 Alerte(
                     f"stop:{ticker}",
                     f"⛔ {nom} ({ticker}) est passé sous ton seuil de sortie {stop:.2f} "
-                    f"(cours {dernier:.2f}). C'est le moment d'appliquer la règle que tu t'étais fixée.\n{details}",
+                    f"(cours {dernier:.2f}). C'est le moment d'appliquer la règle que tu t'étais fixée.\n{details}"
+                    if "quantite" in position else
+                    f"🔔 {nom} ({ticker}) est passé sous ton seuil d'alerte {stop:.2f} (cours {dernier:.2f}).\n{details}",
                 )
             )
 
